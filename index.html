@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Fit Out Project - General Affairs</title>
+<title>Project Control Hub — MRT Jakarta Fit-Out</title>
 <link rel="icon" href="logo.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -60,7 +60,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-<div id="root"><div class="boot">Memuat Project Management & Monitoring</div></div>
+<div id="root"><div class="boot">Memuat Project Control Hub…</div></div>
 <script type="text/babel" data-presets="react">
 /* global React, ReactDOM, html2canvas, supabase */
 const { useState, useMemo, useEffect, useRef } = React;
@@ -72,6 +72,7 @@ const C = {
   ink: "#13293D", text: "#1F2D3D", slate: "#6B7A8D",
   bg: "#F5F9FD", surface: "#FFFFFF", line: "#E7EFF7",
   amber: "#E89B1C", orange: "#E8833A", orangeSoft: "#FDF0E7", red: "#E11D48",
+  violet: "#5B5BD6", violetSoft: "#EEEEFB", violetDk: "#4645B8",
 };
 const STATUS = { todo: "Belum Mulai", doing: "Berjalan", done: "Selesai", cancel: "Dibatalkan" };
 const SMETA = {
@@ -100,6 +101,21 @@ const actOf = (k) => ACTS.find((a) => a.key === k) || ACTS[0];
 
 /* ROLE */
 const ROLE = { pm: "Project Management", admin: "Admin" };
+
+/* prioritas pekerjaan */
+const PRIO = ["Tinggi", "Sedang", "Rendah"];
+const PRIOC = { Tinggi: { c: "#DC2626", b: "#FEE9EC" }, Sedang: { c: "#D97706", b: "#FDF3E3" }, Rendah: { c: "#2563EB", b: "#E8F0FE" } };
+/* status Tugas Saya */
+const MST = { todo: "Belum Dikerjakan", doing: "Dikerjakan", done: "Selesai" };
+const MCOLS = [MST.todo, MST.doing, MST.done];
+const MMETA = {
+  [MST.todo]: { color: "#64748B", bg: "#EEF3F8", icon: "circle" },
+  [MST.doing]: { color: "#D97706", bg: "#FDF3E3", icon: "half" },
+  [MST.done]: { color: C.green, bg: C.greenSoft, icon: "check" },
+};
+/* kode tampilan kartu, mis. KON-004 */
+const ACTCODE = { konsultan: "KON", kontraktor: "KTR", transisi: "TRS" };
+const codeOf = (t, i) => `${ACTCODE[t.act] || "TSK"}-${String(i + 1).padStart(3, "0")}`;
 
 /* ===== UTIL ===== */
 const D = (s) => new Date(s + "T12:00:00");
@@ -177,6 +193,12 @@ const ICONS = {
   users: (<g><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></g>),
   history: (<g><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" /></g>),
   tasks: (<g><path d="M10 6h11M10 12h11M10 18h11" /><path d="M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" /></g>),
+  circle: (<circle cx="12" cy="12" r="9" />),
+  half: (<g><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor" stroke="none" /></g>),
+  flag: (<g><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1Z" /><path d="M4 22v-7" /></g>),
+  clock: (<g><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></g>),
+  key: (<g><circle cx="7.5" cy="15.5" r="4.5" /><path d="M10.7 12.3 21 2M17 6l3 3M14 9l3 3" /></g>),
+  userPlus: (<g><path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><path d="M19 8v6M22 11h-6" /></g>),
   grip: (<g fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.3" /><circle cx="9" cy="12" r="1.3" /><circle cx="9" cy="18" r="1.3" /><circle cx="15" cy="6" r="1.3" /><circle cx="15" cy="12" r="1.3" /><circle cx="15" cy="18" r="1.3" /></g>),
 };
 function Ic({ name, size = 18 }) {
@@ -228,8 +250,8 @@ function mkAct(act, defs) {
   defs.forEach(([name, start, finish, pct, subs]) => {
     const pid = uid();
     const hasSub = subs && subs.length;
-    out.push({ id: pid, act, parent: null, name, start, finish, percent: hasSub ? 0 : pct, status: stOf(hasSub ? 0 : pct), note: "", assignees: [] });
-    (subs || []).forEach(([sn, ss, sf, sp]) => out.push({ id: uid(), act, parent: pid, name: sn, start: ss, finish: sf, percent: sp, status: stOf(sp), note: "", assignees: [] }));
+    out.push({ id: pid, act, parent: null, name, start, finish, percent: hasSub ? 0 : pct, status: stOf(hasSub ? 0 : pct), note: "", assignees: [], prio: "Sedang" });
+    (subs || []).forEach(([sn, ss, sf, sp], i) => out.push({ id: uid(), act, parent: pid, name: sn, start: ss, finish: sf, percent: sp, status: stOf(sp), note: "", assignees: [], prio: PRIO[i % 3] }));
   });
   return out;
 }
@@ -284,29 +306,54 @@ const SEED_USERS = [
   { id: uid(), name: "Admin Proyek", email: "admin@mrt.co.id", role: ROLE.admin, active: true },
 ];
 const SEED_MYTASKS = [
-  { id: uid(), owner: "pm@mrt.co.id", text: "Review gambar kerja Lt.21", done: false },
-  { id: uid(), owner: "pm@mrt.co.id", text: "Kirim undangan aanwijzing", done: true },
-  { id: uid(), owner: "admin@mrt.co.id", text: "Arsipkan BAST termin 1", done: false },
+  { id: uid(), owner: "pm@mrt.co.id", text: "Review gambar kerja Lt.21", done: false, status: MST.doing, prio: "Tinggi", due: "2026-07-28" },
+  { id: uid(), owner: "pm@mrt.co.id", text: "Kirim undangan aanwijzing", done: true, status: MST.done, prio: "Sedang", due: "2026-07-20" },
+  { id: uid(), owner: "pm@mrt.co.id", text: "Susun ringkasan progres mingguan", done: false, status: MST.todo, prio: "Sedang", due: "" },
+  { id: uid(), owner: "admin@mrt.co.id", text: "Arsipkan BAST termin 1", done: false, status: MST.todo, prio: "Rendah", due: "2026-08-03" },
 ];
 
 /* ===== SUPABASE (BACKEND LIVE) =====================================
    Isi 2 baris di bawah dengan kredensial project Supabase-mu.
    Ambil di: Supabase Dashboard -> Project Settings -> API.
-     SUPABASE_URL      = "https://vrevaqqvxvbnnylpyrnf.supabase.co"     (mis. https://abcd1234.supabase.co)
-     SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZyZXZhcXF2eHZibm55bHB5cm5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3Nzk5MDEsImV4cCI6MjEwMDM1NTkwMX0.2UQQEE_mBW9-lMssWHNHL7HRAxQkkhGLnjdRkMFmCKk" key (AMAN di sini; dilindungi RLS)
+     SUPABASE_URL      = "Project URL"     (mis. https://abcd1234.supabase.co)
+     SUPABASE_ANON_KEY = "anon public" key (AMAN di sini; dilindungi RLS)
    JANGAN tempel key "service_role" di file ini.
    Biarkan kosong ("") untuk mode DEMO (data contoh, tanpa server). */
-const SUPABASE_URL = "";
-const SUPABASE_ANON_KEY = "";
+const SUPABASE_URL = "https://vrevaqqvxvbnnylpyrnf.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZyZXZhcXF2eHZibm55bHB5cm5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3Nzk5MDEsImV4cCI6MjEwMDM1NTkwMX0.2UQQEE_mBW9-lMssWHNHL7HRAxQkkhGLnjdRkMFmCKk";
 const PROJECT_KEY = "MRT-FO-2026";
 const BUCKET = "project-files";
 
 const LIVE = !!(SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase !== "undefined" && supabase.createClient);
 const sb = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+/* Klien terpisah khusus pendaftaran akun: persistSession=false supaya membuat
+   user baru TIDAK menggeser sesi login orang yang sedang memakai portal. */
+const sbSignup = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "pch-signup" },
+}) : null;
+
+/* Buat akun login langsung dari portal (memakai anon key + Auth signUp).
+   Catatan: menghapus akun Auth secara permanen butuh service_role, jadi
+   penghapusan dari portal = mencabut akses (baris app_users dihapus),
+   dan login user tersebut akan ditolak oleh gerbang akses di App. */
+async function portalCreateUser(email, password) {
+  if (!LIVE) return { created: true, demo: true };
+  const { data, error } = await sbSignup.auth.signUp({ email: email.trim().toLowerCase(), password });
+  if (error) throw new Error(error.message);
+  const u = data && data.user;
+  if (u && Array.isArray(u.identities) && u.identities.length === 0) return { created: false, exists: true };
+  return { created: true, needConfirm: !!(u && !data.session) };
+}
+async function portalResetPassword(email) {
+  if (!LIVE) return true;
+  const { error } = await sb.auth.resetPasswordForEmail((email || "").trim().toLowerCase(), { redirectTo: window.location.href });
+  if (error) throw new Error(error.message);
+  return true;
+}
 
 /* --- pemetaan field aplikasi <-> kolom DB --- */
-const taskToRow = (t) => ({ id: t.id, act: t.act, parent_id: t.parent || null, name: t.name, start_date: t.start, finish_date: t.finish, percent: Number(t.percent) || 0, status: t.status, note: t.note || null, assignees: t.assignees || [] });
-const taskFromRow = (r) => ({ id: r.id, act: r.act, parent: r.parent_id || null, name: r.name, start: r.start_date, finish: r.finish_date, percent: Number(r.percent) || 0, status: r.status, note: r.note || "", assignees: r.assignees || [] });
+const taskToRow = (t) => ({ id: t.id, act: t.act, parent_id: t.parent || null, name: t.name, start_date: t.start, finish_date: t.finish, percent: Number(t.percent) || 0, status: t.status, note: t.note || null, assignees: t.assignees || [], prio: t.prio || "Sedang" });
+const taskFromRow = (r) => ({ id: r.id, act: r.act, parent: r.parent_id || null, name: r.name, start: r.start_date, finish: r.finish_date, percent: Number(r.percent) || 0, status: r.status, note: r.note || "", assignees: r.assignees || [], prio: r.prio || "Sedang" });
 const costToRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
 const costFromRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start: r.start_date, finish: r.finish_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
 const termToRow = (t) => ({ id: t.id, term: t.term, descr: t.desc, percent: Number(t.percent) || 0, pay_date: t.date, proof_url: t.proofUrl || null, proof_name: t.proofName || null });
@@ -317,8 +364,8 @@ const punchToRow = (p) => ({ id: p.id, title: p.title, stage: p.stage, loc: p.lo
 const punchFromRow = (r) => ({ id: r.id, title: r.title, stage: r.stage, loc: r.loc || "", severity: r.severity, status: r.status, due: r.due_date, note: r.note || "", photo: r.photo_url || null });
 const userToRow = (u) => ({ id: u.id, name: u.name, email: (u.email || "").toLowerCase(), role: u.role, active: !!u.active });
 const userFromRow = (r) => ({ id: r.id, name: r.name, email: r.email || "", role: r.role || ROLE.admin, active: r.active !== false });
-const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done });
-const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done });
+const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done, status: t.status || (t.done ? MST.done : MST.todo), prio: t.prio || "Sedang", due_date: t.due || null });
+const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done, status: r.status || (r.done ? MST.done : MST.todo), prio: r.prio || "Sedang", due: r.due_date || "" });
 const logToRow = (l) => ({ id: l.id, ts: l.ts, actor: l.actor, action: l.action, detail: l.detail || null });
 const logFromRow = (r) => ({ id: r.id, ts: r.ts, actor: r.actor || "", action: r.action || "", detail: r.detail || "" });
 
@@ -327,26 +374,47 @@ async function loadTable(table, fromRow) {
   if (error) throw error;
   return (data || []).map(fromRow);
 }
+/* status sinkronisasi global (supaya kegagalan tulis TERLIHAT, bukan diam di console) */
+const SYNC = {
+  state: "idle", msg: "", at: null, subs: new Set(),
+  set(state, msg) { this.state = state; this.msg = msg || ""; this.at = new Date(); this.subs.forEach((f) => f()); },
+};
+function useSyncState() {
+  const [, tick] = useState(0);
+  useEffect(() => { const cb = () => tick((x) => x + 1); SYNC.subs.add(cb); return () => SYNC.subs.delete(cb); }, []);
+  return SYNC;
+}
 async function pushTable(table, rows, toRow) {
   const payload = rows.map((r, i) => ({ ...toRow(r), project_key: PROJECT_KEY, pos: i }));
-  if (payload.length) { const { error } = await sb.from(table).upsert(payload); if (error) throw error; }
-  const ids = rows.map((r) => r.id);
-  let q = sb.from(table).delete().eq("project_key", PROJECT_KEY);
-  if (ids.length) q = q.not("id", "in", "(" + ids.map((x) => '"' + x + '"').join(",") + ")");
-  const { error } = await q; if (error) throw error;
+  if (payload.length) {
+    const { error } = await sb.from(table).upsert(payload);
+    if (error) throw new Error(`${table}: gagal menyimpan — ${error.message}`);
+  }
+  /* hapus baris yang sudah tidak ada, dengan diff eksplisit (lebih aman daripada filter "not in") */
+  const { data: cur, error: e1 } = await sb.from(table).select("id").eq("project_key", PROJECT_KEY);
+  if (e1) throw new Error(`${table}: gagal membaca — ${e1.message}`);
+  const keep = new Set(rows.map((r) => r.id));
+  const gone = (cur || []).map((r) => r.id).filter((id) => !keep.has(id));
+  if (gone.length) {
+    const { error: e2 } = await sb.from(table).delete().eq("project_key", PROJECT_KEY).in("id", gone);
+    if (e2) throw new Error(`${table}: gagal menghapus — ${e2.message}`);
+  }
 }
 async function ensureSeed() {
   const { data, error } = await sb.from("app_meta").select("project_key").eq("project_key", PROJECT_KEY).maybeSingle();
-  if (error) throw error;
-  if (data) return;
-  await sb.from("app_meta").upsert({ project_key: PROJECT_KEY, name: PROJECT.name, sub: PROJECT.sub, status_date: PROJECT.statusDate, fee: SEED_FEE });
+  if (error) throw new Error("app_meta: gagal dibaca — " + error.message + " (sudah menjalankan database.sql?)");
+  if (data) return false;               // sudah pernah di-seed -> JANGAN ulangi
+  /* Tandai dulu supaya tidak mungkin menyemai dua kali. Error di sini dulu
+     tidak diperiksa, akibatnya data contoh ter-seed ulang setiap muat. */
+  const { error: e0 } = await sb.from("app_meta").upsert({ project_key: PROJECT_KEY, name: PROJECT.name, sub: PROJECT.sub, status_date: PROJECT.statusDate, fee: SEED_FEE });
+  if (e0) throw new Error("app_meta: gagal ditulis — " + e0.message + " (cek RLS / policy)");
   await pushTable("app_tasks", SEED_TASKS, taskToRow);
   await pushTable("app_rab", SEED_RAB, costToRow);
   await pushTable("app_trans", SEED_TRANS, costToRow);
   await pushTable("app_terms", SEED_TERMS, termToRow);
   await pushTable("app_docs", SEED_DOCS, docToRow);
   await pushTable("app_punch", SEED_PUNCH, punchToRow);
-  await pushTable("app_mytasks", [], myToRow);
+  return true;
 }
 async function loadAll() {
   await ensureSeed();
@@ -357,6 +425,46 @@ async function loadAll() {
     loadTable("app_users", userFromRow), loadTable("app_mytasks", myFromRow), loadTable("app_logs", logFromRow),
   ]);
   return { meta, tasks, rab, trans, terms, docs, punch, users, mytasks, logs };
+}
+/* tes koneksi menyeluruh — hasilnya ditampilkan di panel Diagnostik */
+async function runDiag() {
+  const out = []; const add = (name, ok, msg) => out.push({ name, ok, msg: msg || "" });
+  if (!LIVE) {
+    const noCred = !(SUPABASE_URL && SUPABASE_ANON_KEY);
+    const noLib = (typeof supabase === "undefined" || !supabase.createClient);
+    add("Mode aplikasi", false, "DEMO — perubahan hanya tersimpan di browser dan kembali ke data contoh saat halaman dimuat ulang.");
+    add("Kredensial di index.html", !noCred, noCred
+      ? "SUPABASE_URL dan/atau SUPABASE_ANON_KEY masih kosong. Pastikan file yang ter-upload ke GitHub benar-benar versi yang sudah diisi (cek langsung isi file di GitHub), lalu muat ulang dengan Ctrl+Shift+R."
+      : "terisi: " + SUPABASE_URL);
+    add("Pustaka supabase-js", !noLib, noLib
+      ? "gagal dimuat dari CDN — koneksi terblokir, offline, atau diblokir ekstensi peramban."
+      : "termuat");
+    return out;
+  }
+  add("Mode aplikasi", true, "LIVE — " + SUPABASE_URL);
+  try { const { data, error } = await sb.auth.getSession(); if (error) throw error; const ss = data && data.session; add("Sesi login", !!ss, ss ? ss.user.email : "tidak ada sesi aktif"); }
+  catch (e) { add("Sesi login", false, e.message || String(e)); }
+  const tables = ["app_meta", "app_tasks", "app_rab", "app_trans", "app_terms", "app_docs", "app_punch", "app_users", "app_mytasks", "app_logs"];
+  for (const t of tables) {
+    try { const { data, error } = await sb.from(t).select("id").eq("project_key", PROJECT_KEY); if (error) throw error; add("Baca " + t, true, (data || []).length + " baris"); }
+    catch (e) { add("Baca " + t, false, e.message || String(e)); }
+  }
+  try {
+    const id = "diag-" + uid();
+    const { error: e1 } = await sb.from("app_logs").insert({ id, project_key: PROJECT_KEY, pos: 99999, ts: nowISO(), actor: "diagnostik", action: "tes tulis", detail: "baris uji, otomatis dihapus" });
+    if (e1) throw e1;
+    const { error: e2 } = await sb.from("app_logs").delete().eq("id", id);
+    if (e2) throw e2;
+    add("Tulis & hapus baris", true, "berhasil (RLS mengizinkan tulis)");
+  } catch (e) { add("Tulis & hapus baris", false, (e.message || String(e)) + " — cek policy RLS"); }
+  try {
+    const path = PROJECT_KEY + "/diag/" + uid() + ".txt";
+    const { error: e1 } = await sb.storage.from(BUCKET).upload(path, new Blob(["diagnostik"], { type: "text/plain" }), { contentType: "text/plain", upsert: true });
+    if (e1) throw e1;
+    await sb.storage.from(BUCKET).remove([path]);
+    add("Storage '" + BUCKET + "'", true, "unggah & hapus berhasil");
+  } catch (e) { add("Storage '" + BUCKET + "'", false, (e.message || String(e)) + " — bucket belum dibuat / policy salah"); }
+  return out;
 }
 async function saveMetaFee(fee) {
   if (!LIVE) return;
@@ -382,9 +490,15 @@ async function uploadFile(file, prefix) {
 function useSync(table, rows, toRow, ready) {
   const skip = useRef(true);
   useEffect(() => {
-    if (!LIVE || !ready) return;
-    if (skip.current) { skip.current = false; return; }
-    const h = setTimeout(() => { pushTable(table, rows, toRow).catch((e) => console.error("sync " + table, e)); }, 700);
+    if (!LIVE) return;
+    if (!ready) { skip.current = true; return; }   // reset saat logout / sebelum data termuat
+    if (skip.current) { skip.current = false; return; } // lewati render pertama (hasil load)
+    const h = setTimeout(() => {
+      SYNC.set("saving");
+      pushTable(table, rows, toRow)
+        .then(() => { if (SYNC.state !== "error") SYNC.set("saved"); })
+        .catch((e) => { console.error("sync " + table, e); SYNC.set("error", e.message || String(e)); });
+    }, 700);
     return () => clearTimeout(h);
   }, [rows, ready]);
 }
@@ -456,7 +570,7 @@ function SCurveChart({ data, today }) {
 function Btn({ children, onClick, kind = "primary", size = "md", style, ...r }) {
   const base = { border: "1px solid transparent", borderRadius: 10, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, transition: ".15s", whiteSpace: "nowrap", fontFamily: "inherit" };
   const sz = { sm: { padding: "6px 11px", fontSize: 12.5 }, md: { padding: "9px 15px", fontSize: 13.5 } };
-  const kn = { primary: { background: C.blue, color: "#fff" }, green: { background: C.green, color: "#fff" }, red: { background: C.red, color: "#fff" }, ghost: { background: "#fff", color: C.ink, border: `1px solid ${C.line}` } };
+  const kn = { primary: { background: C.violet, color: "#fff", boxShadow: "0 2px 8px rgba(91,91,214,.28)" }, green: { background: C.green, color: "#fff" }, red: { background: C.red, color: "#fff" }, ghost: { background: "#fff", color: C.ink, border: `1px solid ${C.line}` } };
   return <button onClick={onClick} style={{ ...base, ...sz[size], ...kn[kind], ...style }} {...r}>{children}</button>;
 }
 const inS = { width: "100%", padding: "9px 11px", border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13.5, color: C.ink, outline: "none", fontFamily: "inherit", background: "#fff" };
@@ -479,6 +593,14 @@ function Modal({ title, onClose, children, width = 460 }) {
 }
 function ActTag({ act }) { const a = actOf(act); return <span style={{ fontSize: 11, fontWeight: 700, color: a.color, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><span style={{ width: 7, height: 7, borderRadius: 99, background: a.color, flexShrink: 0 }} />{a.label}</span>; }
 function Pill({ text, color, bg }) { return <span style={{ fontSize: 11, fontWeight: 700, color, background: bg, padding: "3px 9px", borderRadius: 99, whiteSpace: "nowrap" }}>{text}</span>; }
+function Chip({ text, c, b, dot }) { return <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, fontWeight: 700, color: c, background: b, padding: "3px 8px", borderRadius: 7, whiteSpace: "nowrap" }}>{dot && <span style={{ width: 6, height: 6, borderRadius: 99, background: c }} />}{text}</span>; }
+function PrioChip({ prio }) { const m = PRIOC[prio] || PRIOC.Sedang; return <Chip text={prio} c={m.c} b={m.b} />; }
+function AddNew({ onClick, label = "Tambah" }) {
+  return <button onClick={onClick} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 12px", borderRadius: 11, border: `1.5px dashed ${C.line}`, background: "transparent", color: C.slate, fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><Ic name="plus" size={14} /> {label}</button>;
+}
+function Bar({ pct, color }) {
+  return <div style={{ height: 5, background: "#EDF2F7", borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${Math.max(0, Math.min(100, pct))}%`, height: "100%", background: color, borderRadius: 99, transition: ".2s" }} /></div>;
+}
 const iconBtn = { background: "none", border: "none", cursor: "pointer", color: C.slate, padding: 5, borderRadius: 7, display: "grid", placeItems: "center" };
 function Empty({ text }) { return <div style={{ textAlign: "center", color: C.slate, fontSize: 13, padding: "26px 8px" }}>{text}</div>; }
 
@@ -507,11 +629,15 @@ function Login({ onLogin, live }) {
     <div style={{ width: 400, maxWidth: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18, justifyContent: "center" }}>
         <Logo size={40} radius={11} />
-        <div><div style={{ fontWeight: 800, fontSize: 18, color: C.ink }}>Fit Out Monitoring Portal</div><div style={{ fontSize: 12, color: C.slate }}>General Affairs Department</div></div>
+        <div><div style={{ fontWeight: 800, fontSize: 18, color: C.ink }}>Project Control Hub</div><div style={{ fontSize: 12, color: C.slate }}>MRT Jakarta Fit-Out</div></div>
       </div>
       <div style={{ background: "#fff", borderRadius: 18, padding: 26, boxShadow: "0 20px 50px rgba(10,108,184,.14)" }}>
         <div style={{ fontWeight: 700, fontSize: 19, color: C.ink }}>Selamat datang</div>
-        <div style={{ fontSize: 13, color: C.slate, marginBottom: 18, marginTop: 2 }}>{live ? "Masuk dengan email & password akun Supabase." : "Silakan isi username dan password."}</div>
+        <div style={{ fontSize: 13, color: C.slate, marginBottom: 12, marginTop: 2 }}>{live ? "Masuk dengan email & password akun Supabase." : "Masuk dengan akun demo di bawah."}</div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 99, background: live ? C.greenSoft : "#FCF3E2", color: live ? C.green : C.amber, fontSize: 11.5, fontWeight: 700, marginBottom: 14 }}>
+          <span style={{ width: 7, height: 7, borderRadius: 99, background: live ? C.green : C.amber }} />
+          {live ? "Tersambung ke Supabase — data tersimpan" : "Mode DEMO — perubahan tidak tersimpan"}
+        </div>
         <Field label={live ? "Email" : "Username"}><Input type={live ? "email" : "text"} value={u} onChange={(e) => setU(e.target.value)} placeholder={live ? "nama@perusahaan.com" : "pm / admin"} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
         <div style={{ height: 12 }} />
         <Field label="Password"><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
@@ -521,6 +647,7 @@ function Login({ onLogin, live }) {
           {USERS.map((x) => <button key={x.u} onClick={() => { setU(x.u); setP(x.p); setErr(""); }} style={{ textAlign: "left", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 11, background: C.bg, cursor: "pointer" }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{x.role}</div><div style={{ fontSize: 11, color: C.slate }}>{x.u} / {x.p}</div></button>)}
         </div>}
       </div>
+      <div style={{ textAlign: "center", color: C.slate, fontSize: 11.5, marginTop: 16 }}>{live ? "Akun dibuat di Supabase → Authentication → Users." : "Project Management punya menu Manajemen User."}</div>
     </div>
   </div>;
 }
@@ -798,9 +925,10 @@ function TaskNoteModal({ task, users, onSave, onClose }) {
     </div>
   </Modal>;
 }
-function Kanban({ tasks, act, users, onMove, onView, onNote, canMove, canNote }) {
+function Kanban({ tasks, act, users, onMove, onView, onNote, onAdd, canMove, canNote }) {
   const list = tasks.filter((t) => t.act === act);
   const leaves = list.filter((t) => !list.some((x) => x.parent === t.id));
+  const idx = new Map(leaves.map((t, i) => [t.id, i]));
   const nameOfParent = (t) => { const p = list.find((x) => x.id === t.parent); return p ? p.name : null; };
   const [over, setOver] = useState(null);
   const A2 = actOf(act);
@@ -812,43 +940,135 @@ function Kanban({ tasks, act, users, onMove, onView, onNote, canMove, canNote })
         onDragOver={(e) => { if (!canMove) return; e.preventDefault(); setOver(col); }}
         onDragLeave={() => setOver((o) => (o === col ? null : o))}
         onDrop={(e) => { if (!canMove) return; e.preventDefault(); const id = e.dataTransfer.getData("text/plain"); setOver(null); if (id) onMove(id, col); }}
-        style={{ background: over === col ? m.bg : C.surface, border: `1px solid ${over === col ? m.color : C.line}`, borderRadius: 16, padding: 13, minHeight: 190, transition: ".15s", minWidth: 0, borderTop: `3px solid ${m.color}` }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 6 }}>
-          <span style={{ fontWeight: 700, fontSize: 13, color: m.color, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col}</span>
-          <Pill text={String(items.length)} color={m.color} bg={m.bg} />
+        style={{ background: over === col ? m.bg : "#FBFCFE", border: `1px ${over === col ? "solid" : "dashed"} ${over === col ? m.color : C.line}`, borderRadius: 16, padding: 12, minHeight: 200, transition: ".15s", minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "0 2px" }}>
+          <span style={{ width: 4, height: 15, borderRadius: 3, background: m.color, flexShrink: 0 }} />
+          <span style={{ fontWeight: 700, fontSize: 13, color: C.ink, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 6, padding: "1px 7px" }}>{items.length}</span>
+          {canNote && <button title="Tambah pekerjaan" onClick={onAdd} style={{ ...iconBtn, marginLeft: "auto", padding: 3 }}><Ic name="plus" size={15} /></button>}
         </div>
         <div style={{ display: "grid", gap: 9 }}>
           {items.map((t) => {
             const ci = KCOLS.indexOf(t.status);
             const canceled = t.status === STATUS.cancel;
+            const late = !canceled && t.percent < 100 && D(t.finish) < todayNoon();
             return <div key={t.id} draggable={canMove} onDragStart={(e) => e.dataTransfer.setData("text/plain", t.id)}
-              style={{ border: `1px solid ${C.line}`, borderLeft: `3px solid ${m.color}`, borderRadius: 12, padding: "10px 11px", background: "#fff", cursor: canMove ? "grab" : "default", boxShadow: "0 1px 2px rgba(16,42,67,.05)" }}>
+              onDoubleClick={() => onView(t)}
+              style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: "11px 12px", background: "#fff", cursor: canMove ? "grab" : "default", boxShadow: "0 1px 3px rgba(16,42,67,.06)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                <PrioChip prio={t.prio || "Sedang"} />
+                <Chip text={A2.label} c={A2.color} b={A2.soft} />
+                {late && <Chip text="Terlambat" c={C.red} b="#FDECEF" />}
+                <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, color: "#9AAABC", letterSpacing: .3 }}>{codeOf(t, idx.get(t.id) || 0)}</span>
+              </div>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: canceled ? C.slate : C.ink, textDecoration: canceled ? "line-through" : "none" }}>{t.name}</div>
-                  {nameOfParent(t) && <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>↳ {nameOfParent(t)}</div>}
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: canceled ? C.slate : C.ink, textDecoration: canceled ? "line-through" : "none", lineHeight: 1.35 }}>{t.name}</div>
+                  <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>{nameOfParent(t) ? "↳ " + nameOfParent(t) : "Pekerjaan utama"}</div>
                 </div>
                 <div style={{ display: "flex", gap: 1, flexShrink: 0 }}>
-                  <button title="Lihat detail" onClick={() => onView(t)} style={{ ...iconBtn, color: C.blue, padding: 4 }}><Ic name="eye" size={14} /></button>
+                  <button title="Lihat detail" onClick={() => onView(t)} style={{ ...iconBtn, color: C.violet, padding: 4 }}><Ic name="eye" size={14} /></button>
                   {canNote && <button title="Catatan & penugasan" onClick={() => onNote(t)} style={{ ...iconBtn, padding: 4 }}><Ic name="pencil" size={13} /></button>}
                 </div>
               </div>
-              {t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 7, background: C.bg, borderRadius: 8, padding: "6px 8px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{t.note}</div>}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 9, gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 10.5, color: C.slate }}>{fmtDate(t.start)} → {fmtDate(t.finish)}</span>
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: canceled ? C.red : A2.color }}>{canceled ? "batal" : t.percent + "%"}</span>
+              {t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8, background: C.bg, borderRadius: 8, padding: "6px 8px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{t.note}</div>}
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <span style={{ fontSize: 10.5, color: C.slate, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}><Ic name="trending" size={11} /> Progres</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: canceled ? C.red : C.ink }}>{canceled ? "batal" : t.percent + "%"}</span>
+                </div>
+                <Bar pct={canceled ? 0 : t.percent} color={m.bar} />
               </div>
-              <div style={{ marginTop: 8 }}><Avatars emails={t.assignees} users={users} /></div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10, paddingTop: 9, borderTop: `1px solid ${C.line}` }}>
+                <Avatars emails={t.assignees} users={users} size={21} />
+                <span style={{ fontSize: 10.5, color: late ? C.red : C.slate, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><Ic name="clock" size={11} /> {fmtDate(t.finish)}</span>
+              </div>
               {canMove && <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
-                <Btn kind="ghost" size="sm" onClick={() => ci > 0 && onMove(t.id, KCOLS[ci - 1])} disabled={ci === 0} style={{ opacity: ci === 0 ? .45 : 1, padding: "4px 8px" }}><Ic name="chevL" size={12} /></Btn>
-                <Btn kind="ghost" size="sm" onClick={() => ci < KCOLS.length - 1 && onMove(t.id, KCOLS[ci + 1])} disabled={ci === KCOLS.length - 1} style={{ opacity: ci === KCOLS.length - 1 ? .45 : 1, padding: "4px 8px" }}><Ic name="chevR" size={12} /></Btn>
+                <Btn kind="ghost" size="sm" onClick={() => ci > 0 && onMove(t.id, KCOLS[ci - 1])} disabled={ci === 0} style={{ flex: 1, justifyContent: "center", opacity: ci === 0 ? .4 : 1, padding: "4px 8px" }}><Ic name="chevL" size={12} /></Btn>
+                <Btn kind="ghost" size="sm" onClick={() => ci < KCOLS.length - 1 && onMove(t.id, KCOLS[ci + 1])} disabled={ci === KCOLS.length - 1} style={{ flex: 1, justifyContent: "center", opacity: ci === KCOLS.length - 1 ? .4 : 1, padding: "4px 8px" }}><Ic name="chevR" size={12} /></Btn>
               </div>}
             </div>;
           })}
-          {items.length === 0 && <div style={{ fontSize: 11.5, color: C.slate, textAlign: "center", padding: "16px 0" }}>Kosong</div>}
+          {items.length === 0 && <div style={{ fontSize: 11.5, color: "#A9B7C6", textAlign: "center", padding: "18px 0" }}>Tidak ada pekerjaan</div>}
+          {canNote && <AddNew onClick={onAdd} label="Tambah pekerjaan" />}
         </div>
       </div>;
     })}
+  </div>;
+}
+
+/* ===== KALENDER MINGGUAN ===== */
+const DAYS_ID = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
+function WeekCalendar({ tasks, act, users, onView }) {
+  const [off, setOff] = useState(0);
+  const w = useWinW();
+  const narrow = w < 900;
+  const base = mondayOf(todayNoon());
+  const start = addDays(base, off * 7);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+  const list = tasks.filter((t) => t.act === act);
+  const leaves = list.filter((t) => !list.some((x) => x.parent === t.id));
+  const idx = new Map(leaves.map((t, i) => [t.id, i]));
+  const A2 = actOf(act);
+  const todayISO = iso(todayNoon());
+  const onDay = (d) => leaves.filter((t) => D(t.start) <= d && D(t.finish) >= d);
+  const weekTasks = leaves.filter((t) => D(t.finish) >= start && D(t.start) <= days[6]);
+  return <div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Btn kind="ghost" size="sm" onClick={() => setOff((x) => x - 1)}><Ic name="chevL" size={14} /></Btn>
+        <Btn kind="ghost" size="sm" onClick={() => setOff(0)}>Minggu ini</Btn>
+        <Btn kind="ghost" size="sm" onClick={() => setOff((x) => x + 1)}><Ic name="chevR" size={14} /></Btn>
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+        Minggu ke-{isoWeek(start)} · {fmtDate(iso(start))} – {fmtDate(iso(days[6]))}
+        <span style={{ fontWeight: 500, color: C.slate, marginLeft: 8, fontSize: 12 }}>{weekTasks.length} pekerjaan aktif</span>
+      </div>
+    </div>
+    <div className="scrollx" style={{ border: `1px solid ${C.line}`, borderRadius: 14, background: "#fff" }}>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(7, minmax(${narrow ? 150 : 120}px, 1fr))`, minWidth: narrow ? 1050 : 780 }}>
+        {days.map((d, i) => {
+          const isToday = iso(d) === todayISO;
+          return <div key={i} style={{ borderRight: i < 6 ? `1px solid ${C.line}` : "none", background: isToday ? C.violetSoft : "#FBFCFE", padding: "10px 8px", textAlign: "center", borderBottom: `1px solid ${C.line}` }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: isToday ? C.violet : C.slate }}>{DAYS_ID[i]}</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: isToday ? C.violet : C.ink, marginTop: 2 }}>{d.getDate()}</div>
+            <div style={{ fontSize: 10.5, color: C.slate }}>{MON[d.getMonth()]} {String(d.getFullYear()).slice(2)}</div>
+            {isToday && <div style={{ marginTop: 6, fontSize: 9.5, fontWeight: 800, color: "#fff", background: C.violet, borderRadius: 99, padding: "2px 8px", display: "inline-block" }}>HARI INI</div>}
+          </div>;
+        })}
+        {days.map((d, i) => {
+          const items = onDay(d);
+          const isToday = iso(d) === todayISO;
+          return <div key={"c" + i} style={{ borderRight: i < 6 ? `1px solid ${C.line}` : "none", background: isToday ? "#FCFCFF" : "#fff", padding: 8, minHeight: 330, display: "grid", gap: 7, alignContent: "start" }}>
+            {items.map((t) => {
+              const m = SMETA[t.status] || SMETA[STATUS.todo];
+              const isStart = iso(D(t.start)) === iso(d);
+              const isEnd = iso(D(t.finish)) === iso(d);
+              return <button key={t.id} onClick={() => onView(t)} title={`${t.name} · ${fmtDate(t.start)} → ${fmtDate(t.finish)} · ${t.percent}%`}
+                style={{ textAlign: "left", border: `1px solid ${C.line}`, borderLeft: `3px solid ${m.bar}`, borderRadius: 9, background: t.status === STATUS.cancel ? "#FFF7F8" : "#fff", padding: "7px 8px", cursor: "pointer", boxShadow: "0 1px 2px rgba(16,42,67,.05)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4, flexWrap: "wrap" }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 99, background: m.bar, flexShrink: 0 }} />
+                  <span style={{ fontSize: 9.5, fontWeight: 800, color: "#9AAABC" }}>{codeOf(t, idx.get(t.id) || 0)}</span>
+                  {isStart && <Chip text="Mulai" c={C.green} b={C.greenSoft} />}
+                  {isEnd && <Chip text="Selesai" c={C.violet} b={C.violetSoft} />}
+                </div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: t.status === STATUS.cancel ? "line-through" : "none", lineHeight: 1.3 }}>{t.name}</div>
+                <div style={{ marginTop: 6 }}><Bar pct={t.percent} color={m.bar} /></div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6, gap: 4 }}>
+                  <Avatars emails={t.assignees} users={users} size={17} />
+                  <span style={{ fontSize: 9.5, fontWeight: 700, color: C.slate }}>{t.percent}%</span>
+                </div>
+              </button>;
+            })}
+            {items.length === 0 && <div style={{ fontSize: 11, color: "#B8C4D2", textAlign: "center", paddingTop: 16 }}>—</div>}
+          </div>;
+        })}
+      </div>
+    </div>
+    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10, fontSize: 11.5, color: C.slate, alignItems: "center" }}>
+      {KCOLS.map((st) => <span key={st} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 4, borderRadius: 2, background: SMETA[st].bar }} /> {st}</span>)}
+      <span style={{ marginLeft: "auto" }}>Pekerjaan tampil di setiap hari sepanjang rentang jadwalnya · klik kartu untuk detail</span>
+    </div>
   </div>;
 }
 
@@ -1221,104 +1441,232 @@ function Punchlist({ punch, setPunch, tasks, can, log }) {
 }
 
 /* ===== TUGAS SAYA (checklist ala OneNote) ===== */
-function MyTasks({ mytasks, setMytasks, user, log }) {
-  const [text, setText] = useState("");
-  const mine = mytasks.filter((t) => (t.owner || "").toLowerCase() === (user.email || "").toLowerCase());
-  const add = () => {
-    const v = text.trim(); if (!v) return;
-    setMytasks((s) => [{ id: uid(), owner: (user.email || "").toLowerCase(), text: v, done: false }, ...s]);
-    log && log("Tambah tugas pribadi", v); setText("");
+function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
+  const [scope, setScope] = useState("me");          // me | all (khusus PM)
+  const [openG, setOpenG] = useState({});
+  const [adding, setAdding] = useState(null);        // status grup yang sedang ditambah
+  const [draft, setDraft] = useState({ text: "", owner: "", prio: "Sedang", due: "" });
+  const me = (user.email || "").toLowerCase();
+  const scoped = (isPM && scope === "all") ? mytasks : mytasks.filter((t) => (t.owner || "").toLowerCase() === me);
+  const userOf = (em) => users.find((u) => (u.email || "").toLowerCase() === (em || "").toLowerCase());
+  const upd = (id, patch) => setMytasks((s) => s.map((t) => t.id === id ? { ...t, ...patch } : t));
+  const setStatus = (t, st) => { upd(t.id, { status: st, done: st === MST.done }); log && log("Ubah status tugas", `${t.text} → ${st}`); };
+  const cycle = (t) => { const i = MCOLS.indexOf(t.status || MST.todo); setStatus(t, MCOLS[(i + 1) % MCOLS.length]); };
+  const del = (t) => { setMytasks((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus tugas", t.text); };
+  const startAdd = (st) => { setAdding(st); setDraft({ text: "", owner: me, prio: "Sedang", due: "" }); };
+  const commit = () => {
+    const v = draft.text.trim(); if (!v) { setAdding(null); return; }
+    const owner = (isPM && draft.owner ? draft.owner : me).toLowerCase();
+    setMytasks((s) => [...s, { id: uid(), owner, text: v, status: adding, done: adding === MST.done, prio: draft.prio, due: draft.due }]);
+    log && log("Tambah tugas", `${v}${owner !== me ? " → " + owner : ""}`);
+    setDraft((d) => ({ ...d, text: "" }));
   };
-  const toggle = (t) => { setMytasks((s) => s.map((x) => x.id === t.id ? { ...x, done: !x.done } : x)); log && log(t.done ? "Buka kembali tugas" : "Selesaikan tugas", t.text); };
-  const del = (t) => { setMytasks((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus tugas pribadi", t.text); };
-  const edit = (t, v) => setMytasks((s) => s.map((x) => x.id === t.id ? { ...x, text: v } : x));
-  const done = mine.filter((t) => t.done).length;
-  const pct = mine.length ? Math.round(done / mine.length * 100) : 0;
+  const total = scoped.length, done = scoped.filter((t) => (t.status || MST.todo) === MST.done).length;
+  const late = scoped.filter((t) => t.due && (t.status || MST.todo) !== MST.done && D(t.due) < todayNoon()).length;
+  const th = { textAlign: "left", fontSize: 10.5, fontWeight: 700, color: "#9AAABC", padding: "7px 10px", textTransform: "uppercase", letterSpacing: .4, whiteSpace: "nowrap" };
+  const td = { padding: "9px 10px", fontSize: 13, color: C.ink, borderTop: `1px solid ${C.line}`, verticalAlign: "middle" };
   return <div className="g1">
-    <div className="g3">
-      <Stat label="Total Tugas" value={mine.length} icon="tasks" color={C.ink} />
-      <Stat label="Selesai" value={done} sub={`${pct}% tuntas`} icon="check" color={C.green} />
-      <Stat label="Belum Selesai" value={mine.length - done} icon="alert" color={C.amber} />
+    <div className="g4">
+      <Stat label="Total Tugas" value={total} icon="tasks" color={C.ink} />
+      <Stat label="Selesai" value={done} sub={total ? Math.round(done / total * 100) + "% tuntas" : "—"} icon="check" color={C.green} />
+      <Stat label="Dikerjakan" value={scoped.filter((t) => (t.status || MST.todo) === MST.doing).length} icon="half" color={C.amber} />
+      <Stat label="Lewat Tenggat" value={late} icon="alert" color={C.red} />
     </div>
-    <Card>
-      <CardHead icon="tasks" title={`Tugas Saya — ${user.name}`} right={<span style={{ fontSize: 12.5, color: C.slate }}>{user.email}</span>} />
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <Input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Tulis tugas baru, tekan Enter…" style={{ flex: "1 1 240px" }} />
-        <Btn onClick={add}><Ic name="plus" size={16} /> Tambah</Btn>
+    <Card style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "16px 18px", borderBottom: `1px solid ${C.line}`, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <span style={{ width: 30, height: 30, borderRadius: 9, background: C.violetSoft, color: C.violet, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name="tasks" size={16} /></span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Tugas Saya</div>
+            <div style={{ fontSize: 11.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{scope === "all" ? "Semua tugas tim" : `${user.name} · ${user.email}`}</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {isPM && <Sel value={scope} onChange={(e) => setScope(e.target.value)} style={{ width: 168, padding: "7px 10px" }}>
+            <option value="me">Hanya tugas saya</option><option value="all">Semua tugas tim</option>
+          </Sel>}
+          <Btn onClick={() => startAdd(MST.todo)}><Ic name="plus" size={15} /> Tugas Baru</Btn>
+        </div>
       </div>
-      {mine.length > 0 && <div style={{ height: 6, background: C.bg, borderRadius: 99, overflow: "hidden", marginBottom: 14 }}><div style={{ width: `${pct}%`, height: "100%", background: C.green, transition: ".2s" }} /></div>}
-      <div style={{ display: "grid", gap: 6 }}>
-        {mine.map((t) => <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", border: `1px solid ${C.line}`, borderRadius: 11, background: t.done ? C.bg : "#fff" }}>
-          <button onClick={() => toggle(t)} title={t.done ? "Tandai belum selesai" : "Tandai selesai"}
-            style={{ width: 21, height: 21, borderRadius: 6, border: `2px solid ${t.done ? C.green : "#C7D2DE"}`, background: t.done ? C.green : "#fff", color: "#fff", cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, padding: 0 }}>
-            {t.done && <Ic name="check" size={12} />}
-          </button>
-          <input value={t.text} onChange={(e) => edit(t, e.target.value)}
-            style={{ flex: 1, minWidth: 0, border: "1px solid transparent", background: "transparent", fontSize: 13.5, fontFamily: "inherit", color: t.done ? C.slate : C.ink, textDecoration: t.done ? "line-through" : "none", padding: "4px 6px", borderRadius: 8, outline: "none" }}
-            onFocus={(e) => { e.target.style.border = `1px solid ${C.blue}`; e.target.style.background = "#fff"; }}
-            onBlur={(e) => { e.target.style.border = "1px solid transparent"; e.target.style.background = "transparent"; }} />
-          <button onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>
-        </div>)}
-        {mine.length === 0 && <Empty text="Belum ada tugas. Tambahkan di kotak atas — centang untuk mencoret bila selesai." />}
-      </div>
+
+      {MCOLS.map((st) => {
+        const items = scoped.filter((t) => (t.status || MST.todo) === st);
+        const m = MMETA[st];
+        const closed = openG[st];
+        return <div key={st} style={{ borderBottom: `1px solid ${C.line}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", background: "#FBFCFE" }}>
+            <button onClick={() => setOpenG((s) => ({ ...s, [st]: !s[st] }))} style={{ ...iconBtn, padding: 2, transform: closed ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={15} /></button>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 99, padding: "4px 11px" }}><Ic name={m.icon} size={12} /> {st}</span>
+            <span style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>{items.length}</span>
+          </div>
+          {!closed && <div className="scrollx">
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+              <thead><tr><th style={{ ...th, width: "44%" }}>Nama Tugas</th><th style={th}>Penanggung Jawab</th><th style={th}>Tenggat</th><th style={th}>Prioritas</th><th style={{ ...th, width: 44 }}></th></tr></thead>
+              <tbody>
+                {items.map((t) => {
+                  const u = userOf(t.owner);
+                  const isLate = t.due && st !== MST.done && D(t.due) < todayNoon();
+                  return <tr key={t.id}>
+                    <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <button onClick={() => cycle(t)} title="Klik untuk ganti status"
+                        style={{ width: 20, height: 20, borderRadius: 99, border: `2px solid ${st === MST.done ? C.green : (st === MST.doing ? C.amber : "#C7D2DE")}`, background: st === MST.done ? C.green : "#fff", color: "#fff", cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, padding: 0 }}>
+                        {st === MST.done && <Ic name="check" size={11} />}
+                        {st === MST.doing && <span style={{ width: 8, height: 8, borderRadius: 99, background: C.amber }} />}
+                      </button>
+                      <input value={t.text} onChange={(e) => upd(t.id, { text: e.target.value })}
+                        style={{ flex: 1, minWidth: 0, border: "1px solid transparent", background: "transparent", fontSize: 13.5, fontFamily: "inherit", color: st === MST.done ? C.slate : C.ink, textDecoration: st === MST.done ? "line-through" : "none", padding: "4px 6px", borderRadius: 8, outline: "none" }}
+                        onFocus={(e) => { e.target.style.border = `1px solid ${C.violet}`; e.target.style.background = "#fff"; }}
+                        onBlur={(e) => { e.target.style.border = "1px solid transparent"; e.target.style.background = "transparent"; }} />
+                    </div></td>
+                    <td style={td}>{u
+                      ? <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 24, height: 24, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800 }}>{(u.name || "?")[0].toUpperCase()}</span><span style={{ fontSize: 12.5 }}>{u.name}</span></span>
+                      : <span style={{ fontSize: 12, color: C.slate }}>{t.owner}</span>}</td>
+                    <td style={td}>{t.due
+                      ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: isLate ? C.red : C.slate, fontWeight: isLate ? 700 : 500 }}><Ic name="calendar" size={12} /> {fmtDate(t.due)}</span>
+                      : <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "#A9B7C6", cursor: "pointer" }}><Ic name="calendar" size={12} /> atur tanggal<input type="date" onChange={(e) => upd(t.id, { due: e.target.value })} style={{ display: "none" }} /></label>}</td>
+                    <td style={td}><Sel value={t.prio || "Sedang"} onChange={(e) => upd(t.id, { prio: e.target.value })}
+                      style={{ width: 112, padding: "4px 8px", fontSize: 11.5, fontWeight: 700, color: (PRIOC[t.prio] || PRIOC.Sedang).c, background: (PRIOC[t.prio] || PRIOC.Sedang).b, border: "none" }}>
+                      {PRIO.map((x) => <option key={x} style={{ color: C.ink, background: "#fff" }}>{x}</option>)}
+                    </Sel></td>
+                    <td style={td}><button onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button></td>
+                  </tr>;
+                })}
+                {adding === st && <tr><td style={td} colSpan={5}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <Input autoFocus value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setAdding(null); }}
+                      placeholder="Nama tugas — Enter untuk simpan, Esc untuk tutup" style={{ flex: "1 1 240px" }} />
+                    {isPM && <Sel value={draft.owner} onChange={(e) => setDraft((d) => ({ ...d, owner: e.target.value }))} style={{ width: 170 }}>
+                      {users.filter((u) => u.active).map((u) => <option key={u.id} value={u.email}>{u.name}</option>)}
+                    </Sel>}
+                    <Input type="date" value={draft.due} onChange={(e) => setDraft((d) => ({ ...d, due: e.target.value }))} style={{ width: 150 }} />
+                    <Sel value={draft.prio} onChange={(e) => setDraft((d) => ({ ...d, prio: e.target.value }))} style={{ width: 118 }}>{PRIO.map((x) => <option key={x}>{x}</option>)}</Sel>
+                    <Btn size="sm" onClick={commit}>Simpan</Btn>
+                    <Btn size="sm" kind="ghost" onClick={() => setAdding(null)}>Tutup</Btn>
+                  </div>
+                </td></tr>}
+                {items.length === 0 && adding !== st && <tr><td style={{ ...td, color: "#A9B7C6", fontSize: 12.5 }} colSpan={5}>Belum ada tugas pada grup ini.</td></tr>}
+                <tr><td style={{ ...td, paddingTop: 8, paddingBottom: 10 }} colSpan={5}>
+                  <button onClick={() => startAdd(st)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: C.violet, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "2px 0" }}><Ic name="plus" size={14} /> Tambah Tugas</button>
+                </td></tr>
+              </tbody>
+            </table>
+          </div>}
+        </div>;
+      })}
     </Card>
   </div>;
 }
 
 /* ===== MANAJEMEN USER (khusus Project Management) ===== */
-function UserModal({ item, onSave, onClose }) {
+function UserModal({ item, existing, onSave, onClose }) {
+  const isNew = !item;
   const [f, setF] = useState(item || { name: "", email: "", role: ROLE.admin, active: true });
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [info, setInfo] = useState("");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
-  const save = () => { if (!f.name.trim() || !f.email.trim()) return; onSave({ ...f, email: f.email.trim().toLowerCase() }); };
-  return <Modal title={item ? "Edit User" : "Tambah User"} onClose={onClose} width={470}>
-    <Field label="Nama"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
-    <div style={{ marginTop: 12 }}><Field label="Email (harus sama dengan akun Supabase)"><Input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="nama@perusahaan.com" /></Field></div>
+  const save = async () => {
+    setErr(""); setInfo("");
+    const email = (f.email || "").trim().toLowerCase();
+    if (!f.name.trim() || !email) { setErr("Nama dan email wajib diisi."); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setErr("Format email tidak valid."); return; }
+    if (isNew && existing.some((u) => (u.email || "").toLowerCase() === email)) { setErr("Email ini sudah terdaftar di portal."); return; }
+    if (isNew) {
+      if (pw.length < 8) { setErr("Password minimal 8 karakter."); return; }
+      if (pw !== pw2) { setErr("Konfirmasi password tidak sama."); return; }
+      setBusy(true);
+      try {
+        const r = await portalCreateUser(email, pw);
+        if (r.exists) { setErr("Email sudah punya akun login di Supabase. Tetap bisa ditambahkan ke portal — kosongkan lalu simpan sebagai user lama."); setBusy(false); return; }
+        onSave({ ...f, email }, r.needConfirm ? "Akun dibuat. Supabase meminta konfirmasi email sebelum user bisa login." : "");
+      } catch (e) { setErr(e.message || "Gagal membuat akun."); setBusy(false); }
+    } else onSave({ ...f, email }, "");
+  };
+  const doReset = async () => {
+    setErr(""); setInfo(""); setBusy(true);
+    try { await portalResetPassword(f.email); setInfo("Tautan atur ulang password sudah dikirim ke " + f.email + "."); }
+    catch (e) { setErr(e.message || "Gagal mengirim tautan."); }
+    setBusy(false);
+  };
+  return <Modal title={isNew ? "Tambah User Baru" : "Edit User"} onClose={onClose} width={500}>
+    <Field label="Nama lengkap"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Email (dipakai untuk login)">
+      <Input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} disabled={!isNew} placeholder="nama@perusahaan.com" />
+    </Field>{!isNew && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Email tidak bisa diubah karena terikat ke akun login.</div>}</div>
+    {isNew && <div className="g2" style={{ marginTop: 12 }}>
+      <Field label="Password awal (min. 8 karakter)"><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" /></Field>
+      <Field label="Ulangi password"><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="••••••••" /></Field>
+    </div>}
     <div className="g2" style={{ marginTop: 12 }}>
       <Field label="Role"><Sel value={f.role} onChange={(e) => set("role", e.target.value)}>{[ROLE.pm, ROLE.admin].map((r) => <option key={r}>{r}</option>)}</Sel></Field>
-      <Field label="Status"><Sel value={f.active ? "Aktif" : "Nonaktif"} onChange={(e) => set("active", e.target.value === "Aktif")}><option>Aktif</option><option>Nonaktif</option></Sel></Field>
+      <Field label="Status akses"><Sel value={f.active ? "Aktif" : "Nonaktif"} onChange={(e) => set("active", e.target.value === "Aktif")}><option>Aktif</option><option>Nonaktif</option></Sel></Field>
     </div>
-    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save}>{item ? "Simpan" : "Tambah"}</Btn></div>
+    <div style={{ marginTop: 12, fontSize: 12, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
+      {isNew
+        ? "Akun login dibuat langsung dari portal ini — tidak perlu membuka Supabase. Beri tahu user email & password awalnya, lalu minta ia menggantinya."
+        : "Role “Nonaktif” langsung memblokir user tersebut masuk ke portal pada login berikutnya."}
+    </div>
+    {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
+    {info && <div style={{ color: C.green, fontSize: 12.5, marginTop: 10 }}>{info}</div>}
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
+      {!isNew && LIVE ? <Btn kind="ghost" onClick={doReset} disabled={busy}><Ic name="key" size={15} /> Kirim reset password</Btn> : <span />}
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn kind="ghost" onClick={onClose}>Batal</Btn>
+        <Btn onClick={save} disabled={busy} style={{ opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : (isNew ? "Buat Akun" : "Simpan")}</Btn>
+      </div>
+    </div>
   </Modal>;
 }
 function UsersPage({ users, setUsers, mytasks, me, log }) {
   const [modal, setModal] = useState(null);
-  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "10px 8px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap" };
-  const td = { padding: "10px 8px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink };
-  const save = (data) => {
+  const [flash, setFlash] = useState("");
+  const th = { textAlign: "left", fontSize: 10.5, fontWeight: 700, color: "#9AAABC", padding: "10px 10px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .4, whiteSpace: "nowrap" };
+  const td = { padding: "11px 10px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink };
+  const save = (data, msg) => {
     if (data.id) { setUsers((s) => s.map((u) => u.id === data.id ? data : u)); log && log("Edit user", `${data.name} (${data.role})`); }
-    else { setUsers((s) => [...s, { ...data, id: uid() }]); log && log("Tambah user", `${data.name} (${data.role})`); }
-    setModal(null);
+    else { setUsers((s) => [...s, { ...data, id: uid() }]); log && log("Buat akun user", `${data.name} · ${data.email} · ${data.role}`); }
+    setFlash(msg || `User ${data.name} tersimpan.`); setModal(null);
+    setTimeout(() => setFlash(""), 6000);
   };
-  const del = (u) => { if (u.email === me.email) return; setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Hapus user", u.name); };
-  const taskCount = (email) => mytasks.filter((t) => (t.owner || "").toLowerCase() === (email || "").toLowerCase());
+  const del = (u) => {
+    if (u.email === me.email) return;
+    if (!window.confirm(`Cabut akses ${u.name}? Ia tidak akan bisa masuk portal lagi.`)) return;
+    setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Cabut akses user", u.name);
+  };
+  const taskOf = (email) => mytasks.filter((t) => (t.owner || "").toLowerCase() === (email || "").toLowerCase());
   return <div className="g1">
-    <div className="g3">
+    <div className="g4">
       <Stat label="Total User" value={users.length} icon="users" color={C.ink} />
       <Stat label="Project Management" value={users.filter((u) => u.role === ROLE.pm).length} icon="compass" color={C.blue} />
       <Stat label="Admin" value={users.filter((u) => u.role === ROLE.admin).length} icon="check" color={C.green} />
+      <Stat label="Nonaktif" value={users.filter((u) => !u.active).length} icon="x" color={C.red} />
     </div>
     <Card>
-      <CardHead icon="users" title="Manajemen User" right={<Btn onClick={() => setModal({})}><Ic name="plus" size={16} /> Tambah User</Btn>} />
+      <CardHead icon="users" title="Manajemen User" color={C.violet} right={<Btn onClick={() => setModal({})}><Ic name="userPlus" size={16} /> Tambah User</Btn>} />
+      {flash && <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, color: C.ink, borderRadius: 10, padding: "10px 12px", fontSize: 12.5, marginBottom: 14 }}>{flash}</div>}
       <div style={{ fontSize: 12.5, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
-        Halaman ini mengatur <b>role & akses</b>. Untuk mode live, akun login (email + password) tetap dibuat di Supabase → Authentication → Users, lalu daftarkan email yang sama di sini.
+        Akun login dibuat <b>langsung dari portal ini</b> (nama, email, password, role). Menonaktifkan atau mencabut akses juga langsung berlaku di sini.
       </div>
-      <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
-        <thead><tr><th style={th}>Nama</th><th style={th}>Email</th><th style={th}>Role</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 70 }}></th></tr></thead>
-        <tbody>{users.map((u) => { const tc = taskCount(u.email); return <tr key={u.id}>
-          <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 9 }}><div style={{ width: 30, height: 30, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 12.5, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{u.email === me.email && <div style={{ fontSize: 10.5, color: C.slate }}>akun Anda</div>}</div></div></td>
+      <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+        <thead><tr><th style={th}>Nama</th><th style={th}>Email</th><th style={th}>Role</th><th style={th}>Akses</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 76 }}></th></tr></thead>
+        <tbody>{users.map((u) => { const tc = taskOf(u.email); return <tr key={u.id} style={{ opacity: u.active ? 1 : .6 }}>
+          <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ width: 32, height: 32, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{u.email === me.email && <div style={{ fontSize: 10.5, color: C.violet, fontWeight: 700 }}>akun Anda</div>}</div></div></td>
           <td style={{ ...td, color: C.slate }}>{u.email}</td>
           <td style={td}><Pill text={u.role} color={u.role === ROLE.pm ? C.blue : C.green} bg={u.role === ROLE.pm ? C.blueSoft : C.greenSoft} /></td>
-          <td style={td}><Pill text={u.active ? "Aktif" : "Nonaktif"} color={u.active ? C.green : C.slate} bg={u.active ? C.greenSoft : "#EEF3F8"} /></td>
-          <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.slate }}>{tc.filter((t) => t.done).length}/{tc.length}</td>
+          <td style={td}><Pill text={u.active ? "Aktif" : "Nonaktif"} color={u.active ? C.green : C.red} bg={u.active ? C.greenSoft : "#FDECEF"} /></td>
+          <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.slate }}>{tc.filter((t) => (t.status || MST.todo) === MST.done).length}/{tc.length}</td>
           <td style={td}><div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
-            <button onClick={() => setModal({ item: u })} style={iconBtn}><Ic name="pencil" size={14} /></button>
-            <button onClick={() => del(u)} disabled={u.email === me.email} title={u.email === me.email ? "Tidak bisa menghapus akun sendiri" : "Hapus"} style={{ ...iconBtn, color: u.email === me.email ? "#C7D2DE" : C.red, cursor: u.email === me.email ? "not-allowed" : "pointer" }}><Ic name="trash" size={14} /></button>
+            <button title="Edit" onClick={() => setModal({ item: u })} style={iconBtn}><Ic name="pencil" size={14} /></button>
+            <button title={u.email === me.email ? "Tidak bisa mencabut akses sendiri" : "Cabut akses"} onClick={() => del(u)} disabled={u.email === me.email} style={{ ...iconBtn, color: u.email === me.email ? "#C7D2DE" : C.red, cursor: u.email === me.email ? "not-allowed" : "pointer" }}><Ic name="trash" size={14} /></button>
           </div></td>
         </tr>; })}
         {users.length === 0 && <tr><td colSpan={6}><Empty text="Belum ada user." /></td></tr>}
         </tbody></table></div>
     </Card>
-    {modal && <UserModal item={modal.item} onSave={save} onClose={() => setModal(null)} />}
+    {modal && <UserModal item={modal.item} existing={users} onSave={save} onClose={() => setModal(null)} />}
   </div>;
 }
 
@@ -1385,10 +1733,56 @@ function Logs({ logs }) {
   </div>;
 }
 
+/* ===== DIAGNOSTIK KONEKSI ===== */
+function DiagModal({ onClose }) {
+  const [res, setRes] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const run = async () => { setBusy(true); setRes(null); try { setRes(await runDiag()); } catch (e) { setRes([{ name: "Diagnostik", ok: false, msg: e.message || String(e) }]); } setBusy(false); };
+  useEffect(() => { run(); }, []);
+  const bad = res ? res.filter((r) => !r.ok) : [];
+  return <Modal title="Diagnostik Koneksi Supabase" onClose={onClose} width={620}>
+    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+      <Btn onClick={run} disabled={busy}>{busy ? "Menguji…" : "Jalankan tes ulang"}</Btn>
+      {LIVE && <Btn kind="ghost" onClick={() => window.location.reload()}>Muat ulang data dari server</Btn>}
+      {res && <Pill text={bad.length === 0 ? "Semua lolos" : `${bad.length} masalah`} color={bad.length === 0 ? C.green : C.red} bg={bad.length === 0 ? C.greenSoft : "#FDECEF"} />}
+    </div>
+    {!LIVE && <div style={{ background: "#FCF3E2", border: `1px solid ${C.amber}`, borderRadius: 11, padding: "12px 14px", fontSize: 12.5, color: C.ink, marginBottom: 14 }}>
+      <b>Aplikasi sedang berjalan mode DEMO.</b> Isi <code>SUPABASE_URL</code> dan <code>SUPABASE_ANON_KEY</code> di bagian atas blok script dalam <code>index.html</code>, lalu commit ulang ke GitHub dan muat ulang halaman dengan <b>Ctrl+Shift+R</b> (agar tidak memakai cache lama).
+    </div>}
+    <div style={{ display: "grid", gap: 6, maxHeight: "55vh", overflow: "auto" }}>
+      {busy && !res && <Empty text="Menguji koneksi…" />}
+      {res && res.map((r, i) => <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "9px 11px", border: `1px solid ${r.ok ? C.line : C.red}`, background: r.ok ? "#fff" : "#FFF7F8", borderRadius: 10 }}>
+        <span style={{ color: r.ok ? C.green : C.red, flexShrink: 0, marginTop: 1 }}><Ic name={r.ok ? "check" : "x"} size={15} /></span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{r.name}</div>
+          <div style={{ fontSize: 12, color: r.ok ? C.slate : C.red, wordBreak: "break-word" }}>{r.msg}</div>
+        </div>
+      </div>)}
+    </div>
+    <div style={{ marginTop: 14, fontSize: 12, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
+      Jika ada baris merah: jalankan ulang <b>database.sql</b> di Supabase SQL Editor (aman diulang), pastikan bucket <b>{BUCKET}</b> ada, lalu tes lagi.
+    </div>
+  </Modal>;
+}
+function SyncBadge({ onOpen }) {
+  const st = useSyncState();
+  const map = {
+    idle: { t: LIVE ? "Tersambung" : "Mode DEMO", c: LIVE ? C.green : C.amber, b: LIVE ? C.greenSoft : "#FCF3E2" },
+    saving: { t: "Menyimpan…", c: C.blue, b: C.blueSoft },
+    saved: { t: "Tersimpan", c: C.green, b: C.greenSoft },
+    error: { t: "Gagal simpan", c: C.red, b: "#FDECEF" },
+  };
+  const m = map[LIVE ? st.state : "idle"] || map.idle;
+  return <button onClick={onOpen} title={st.msg || (LIVE ? "Klik untuk diagnostik koneksi" : "Data contoh — perubahan tidak tersimpan ke server")}
+    style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 99, border: `1px solid ${m.c}33`, background: m.b, color: m.c, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+    <span style={{ width: 7, height: 7, borderRadius: 99, background: m.c, flexShrink: 0 }} />{m.t}
+  </button>;
+}
+
 /* ===== STAT ===== */
 function Stat({ label, value, sub, color = C.ink, icon }) {
   return <Card style={{ padding: 16 }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{label}</div>{icon && <span style={{ color, opacity: .85 }}><Ic name={icon} size={18} /></span>}</div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{label}</div>{icon && <span style={{ color, background: color + "14", width: 28, height: 28, borderRadius: 9, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={icon} size={15} /></span>}</div>
     <div style={{ fontSize: 23, fontWeight: 800, color, marginTop: 8, fontVariantNumeric: "tabular-nums", letterSpacing: -.5, overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div>
     {sub && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 3 }}>{sub}</div>}
   </Card>;
@@ -1432,7 +1826,7 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
   const counts = {}; KCOLS.forEach((k) => (counts[k] = 0));
   leaves.forEach((t) => (counts[t.status] = (counts[t.status] || 0) + 1));
   const pct = progressOf(tasks, act);
-  const TabBtn = ({ id, icon, label }) => <button onClick={() => setTab(id)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, border: `1px solid ${tab === id ? A2.color : C.line}`, background: tab === id ? A2.soft : "#fff", color: tab === id ? A2.color : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer" }}><Ic name={icon} size={15} /> {label}</button>;
+  const TabBtn = ({ id, icon, label }) => <button onClick={() => setTab(id)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, border: `1px solid ${tab === id ? C.violet : C.line}`, background: tab === id ? C.violetSoft : "#fff", color: tab === id ? C.violet : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer" }}><Ic name={icon} size={15} /> {label}</button>;
   return <div className="g1">
     <div className="g4">
       <Stat label="Progres Kegiatan" value={pct + "%"} sub={`${list.filter((t) => !t.parent).length} pekerjaan · ${leaves.length} item`} icon="trending" color={A2.color} />
@@ -1449,6 +1843,7 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
         <TabBtn id="gantt" icon="calendar" label="Gantt Chart" />
         <TabBtn id="kanban" icon="kanban" label="Kanban" />
+        <TabBtn id="week" icon="clock" label="Kalender Mingguan" />
       </div>
       <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12 }}>
         {tab === "gantt"
@@ -1459,9 +1854,9 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
             ? "Seret kartu antar kolom untuk mengubah status. Ikon mata = detail, ikon pensil = catatan & penugasan."
             : "Seret kartu antar kolom untuk mengubah status (diizinkan untuk Admin). Ikon mata untuk melihat detail dan catatan.")}
       </div>
-      {tab === "gantt"
-        ? <Gantt tasks={tasks} act={act} statusDate={PROJECT.statusDate} editable={can.manage} onChange={updTask} onEdit={(t) => setModal({ task: t })} onDelete={delTask} onAddSub={(p) => setModal({ task: { name: "", act, parent: p.id, start: p.start, finish: p.finish, percent: 0, status: STATUS.todo, note: "", assignees: [] } })} />
-        : <Kanban tasks={tasks} act={act} users={users} onMove={moveKanban} onView={setView} onNote={setNote} canMove={can.kanban} canNote={can.manage} />}
+      {tab === "gantt" && <Gantt tasks={tasks} act={act} statusDate={PROJECT.statusDate} editable={can.manage} onChange={updTask} onEdit={(t) => setModal({ task: t })} onDelete={delTask} onAddSub={(p) => setModal({ task: { name: "", act, parent: p.id, start: p.start, finish: p.finish, percent: 0, status: STATUS.todo, note: "", assignees: [], prio: "Sedang" } })} />}
+      {tab === "kanban" && <Kanban tasks={tasks} act={act} users={users} onMove={moveKanban} onView={setView} onNote={setNote} onAdd={() => setModal({ task: null })} canMove={can.kanban} canNote={can.manage} />}
+      {tab === "week" && <WeekCalendar tasks={tasks} act={act} users={users} onView={setView} />}
     </Card>
     {modal && can.manage && <TaskModal task={modal.task && modal.task.id ? modal.task : (modal.task || null)} act={act} tasks={tasks} onClose={() => setModal(null)} onSave={saveTask} />}
     {view && <TaskViewModal task={view} tasks={tasks} users={users} onClose={() => setView(null)} />}
@@ -1475,6 +1870,7 @@ function App() {
   const [booting, setBooting] = useState(LIVE);
   const [ready, setReady] = useState(!LIVE);
   const [loadErr, setLoadErr] = useState("");
+  const [denied, setDenied] = useState("");
   const [page, setPage] = useState("dashboard");
   const [tasks, setTasks] = useState(SEED_TASKS);
   const [rab, setRab] = useState(SEED_RAB);
@@ -1487,6 +1883,8 @@ function App() {
   const [mytasks, setMytasks] = useState(SEED_MYTASKS);
   const [logs, setLogs] = useState([]);
   const [exportAct, setExportAct] = useState(null);
+  const [diag, setDiag] = useState(false);
+  const syncSt = useSyncState();
   const ganttRef = useRef(null);
   const scWrapRef = useRef(null);
   const w = useWinW();
@@ -1586,7 +1984,12 @@ function App() {
       const email = (user.email || "").toLowerCase();
       let list = d.users;
       let me = list.find((u) => (u.email || "").toLowerCase() === email);
-      if (!me) { me = { id: uid(), name: email.split("@")[0], email, role: list.length === 0 ? ROLE.pm : ROLE.admin, active: true }; list = [...list, me]; }
+      /* GERBANG AKSES: user hanya boleh masuk bila terdaftar & aktif di
+         Manajemen User. User pertama (daftar masih kosong) otomatis jadi
+         Project Management supaya portal bisa di-bootstrap. */
+      if (!me && list.length === 0) { me = { id: uid(), name: email.split("@")[0], email, role: ROLE.pm, active: true }; list = [...list, me]; }
+      if (!me) { sb.auth.signOut().catch(() => {}); setDenied("Akun " + email + " belum terdaftar di portal. Minta Project Management menambahkan Anda lewat menu Manajemen User."); return; }
+      if (!me.active) { sb.auth.signOut().catch(() => {}); setDenied("Akses untuk " + email + " sedang dinonaktifkan. Hubungi Project Management."); return; }
       setUsers(list);
       setUser({ name: me.name, email: me.email, role: me.role });
       setReady(true);
@@ -1610,6 +2013,11 @@ function App() {
   useEffect(() => { if (user && !user.pending && !loggedRef.current) { loggedRef.current = true; log("Masuk aplikasi", `${user.name} · ${user.role}`); } }, [user]);
 
   if (booting) return <div className="boot">Memeriksa sesi…</div>;
+  if (denied) return <div className="boot"><div style={{ maxWidth: 420 }}>
+    <div style={{ color: C.red, fontWeight: 800, fontSize: 15, marginBottom: 8 }}>Akses ditolak</div>
+    <div style={{ marginBottom: 16 }}>{denied}</div>
+    <Btn kind="ghost" onClick={() => { setDenied(""); setUser(null); }}>Kembali ke halaman masuk</Btn>
+  </div></div>;
   if (!user) return <Login onLogin={setUser} live={LIVE} />;
   if (LIVE && !ready) return <div className="boot">{loadErr ? ("⚠ " + loadErr + " — muat ulang halaman.") : "Memuat data proyek…"}</div>;
 
@@ -1641,13 +2049,13 @@ function App() {
     {sidebar && <aside style={{ width: 236, background: "#fff", borderRight: `1px solid ${C.line}`, flexShrink: 0, display: "flex", flexDirection: "column", position: isMobile ? "fixed" : "sticky", left: 0, top: 0, height: "100vh", zIndex: 61, overflowY: "auto" }}>
       <div style={{ padding: 18, display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${C.line}` }}>
         <Logo size={36} radius={10} />
-        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 14.5, color: C.ink }}>Welcome!</div></div>
+        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 14.5, color: C.ink }}>Control Hub</div><div style={{ fontSize: 10.5, color: C.slate }}>MRT Jakarta</div></div>
         {isMobile && <button onClick={() => setSidebar(false)} style={iconBtn}><Ic name="x" size={18} /></button>}
       </div>
       <nav style={{ padding: 12, flex: 1 }}>
         {NAV.map((n, i) => n.sec
           ? <div key={"s" + i} style={{ fontSize: 10, fontWeight: 800, color: "#9AAABC", letterSpacing: .6, padding: "12px 12px 5px" }}>{n.sec}</div>
-          : <button key={n.id} onClick={() => go(n.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", marginBottom: 3, borderRadius: 10, border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 600, textAlign: "left", color: page === n.id ? C.blue : C.slate, background: page === n.id ? C.blueSoft : "transparent" }}>
+          : <button key={n.id} onClick={() => go(n.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", marginBottom: 3, borderRadius: 10, border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 600, textAlign: "left", color: page === n.id ? C.violet : C.slate, background: page === n.id ? C.violetSoft : "transparent" }}>
             <Ic name={n.icon} size={18} />{n.label}
             {n.badge > 0 && <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, color: "#fff", background: C.red, borderRadius: 99, padding: "1px 7px" }}>{n.badge}</span>}
           </button>)}
@@ -1670,9 +2078,20 @@ function App() {
             <div style={{ fontSize: 12, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{PROJECT.name}</div>
           </div>
         </div>
+        <SyncBadge onOpen={() => setDiag(true)} />
       </header>
 
       <div className="wrap">
+        {LIVE && syncSt.state === "error" && <div style={{ display: "flex", alignItems: "flex-start", gap: 9, background: "#FDECEF", border: `1px solid ${C.red}`, borderRadius: 12, padding: "10px 13px", marginBottom: 16, fontSize: 12.5, color: C.ink }}>
+          <span style={{ color: C.red, flexShrink: 0 }}><Ic name="alert" size={16} /></span>
+          <div style={{ minWidth: 0 }}><b>Perubahan gagal disimpan ke Supabase.</b> {syncSt.msg}
+            <div style={{ marginTop: 6 }}><Btn size="sm" kind="ghost" onClick={() => setDiag(true)}>Buka Diagnostik</Btn></div></div>
+        </div>}
+        {!LIVE && <div style={{ display: "flex", alignItems: "flex-start", gap: 9, background: "#FCF3E2", border: `1px solid ${C.amber}`, borderRadius: 12, padding: "10px 13px", marginBottom: 16, fontSize: 12.5, color: C.ink }}>
+          <span style={{ color: C.amber, flexShrink: 0 }}><Ic name="alert" size={16} /></span>
+          <div><b>Mode DEMO — data tidak tersimpan.</b> Perubahan hanya ada di browser dan kembali ke data contoh saat halaman dimuat ulang. Isi SUPABASE_URL & SUPABASE_ANON_KEY di index.html untuk menyambung ke server.
+            <div style={{ marginTop: 6 }}><Btn size="sm" kind="ghost" onClick={() => setDiag(true)}>Cek koneksi</Btn></div></div>
+        </div>}
         {!isPM && <div style={{ display: "flex", alignItems: "center", gap: 9, background: C.blueSoft, border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 13px", marginBottom: 16, fontSize: 12.5, color: C.ink }}>
           <span style={{ color: C.blue, flexShrink: 0 }}><Ic name="alert" size={16} /></span>
           <span>Role <b>Admin</b>: dapat memperbarui <b>dokumen</b>, <b>bukti pembayaran</b>, dan <b>status Kanban</b>. Data lain hanya bisa dilihat.</span>
@@ -1716,13 +2135,14 @@ function App() {
         {page === "biaya" && <Costs rab={rab} setRab={setRab} trans={trans} setTrans={setTrans} fee={fee} setFee={setFee} terms={terms} setTerms={setTerms} can={can} log={log} />}
         {page === "punchlist" && <Punchlist punch={punch} setPunch={setPunch} tasks={tasks} can={can} log={log} />}
         {page === "arsip" && <Arsip docs={docs} setDocs={setDocs} log={log} />}
-        {page === "mytasks" && <MyTasks mytasks={mytasks} setMytasks={setMytasks} user={user} log={log} />}
+        {page === "mytasks" && <MyTasks mytasks={mytasks} setMytasks={setMytasks} users={users} user={user} isPM={isPM} log={log} />}
         {page === "logs" && <Logs logs={logs} />}
         {page === "users" && isPM && <UsersPage users={users} setUsers={setUsers} mytasks={mytasks} me={user} log={log} />}
         {page === "users" && !isPM && <Card><Empty text="Halaman ini khusus role Project Management." /></Card>}
       </div>
     </main>
 
+    {diag && <DiagModal onClose={() => setDiag(false)} />}
     {exportAct && <div style={{ position: "fixed", left: -99999, top: 0, zIndex: -1 }}>
       <div ref={ganttRef} style={{ background: "#fff", padding: 18, display: "inline-block" }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: C.ink, fontFamily: "Inter, sans-serif" }}>{PROJECT.name}</div>
