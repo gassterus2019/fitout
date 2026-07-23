@@ -1,0 +1,1740 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fit Out Project - General Affairs</title>
+<link rel="icon" href="logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #F5F9FD; }
+  #root { min-height: 100vh; }
+  input[type=range] { accent-color: #0A6CB8; }
+  ::-webkit-scrollbar { height: 10px; width: 10px; }
+  ::-webkit-scrollbar-thumb { background: #cdd9e6; border-radius: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  button, input, select, textarea { font-family: inherit; }
+  .boot { display:flex; align-items:center; justify-content:center; height:100vh; color:#6B7A8D; font-size:14px; padding:20px; text-align:center; }
+
+  /* ---------- GRID RESPONSIF ---------- */
+  .wrap { padding: 24px; max-width: 1320px; margin: 0 auto; width: 100%; }
+  .g4 { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
+  .g3 { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+  .g2 { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  .g1 { display:grid; grid-template-columns: minmax(0,1fr); gap: 18px; }
+  .rowwrap { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .scrollx { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  @media (max-width: 1000px) {
+    .g4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .g3 { grid-template-columns: minmax(0,1fr); }
+  }
+  @media (max-width: 620px) {
+    .wrap { padding: 14px; }
+    .g4, .g2 { grid-template-columns: minmax(0,1fr); }
+  }
+
+  /* ---------- CETAK ---------- */
+  @media print {
+    @page { size: A4; margin: 14mm; }
+    html, body { background:#fff !important; }
+    body * { visibility: hidden !important; }
+    .print-doc, .print-doc * { visibility: visible !important; }
+    .print-doc { position: absolute !important; left:0 !important; top:0 !important; width:100% !important; height:auto !important; background:#fff !important; padding:0 !important; overflow:visible !important; }
+    .print-paper { box-shadow:none !important; margin:0 !important; width:100% !important; max-width:none !important; border:none !important; border-radius:0 !important; padding:0 !important; }
+    .no-print { display:none !important; }
+    table { page-break-inside:auto; }
+    tr { page-break-inside:avoid; page-break-after:auto; }
+    thead { display: table-header-group; }
+    img { page-break-inside:avoid; }
+    .sign-block { page-break-inside:avoid; }
+  }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div id="root"><div class="boot">Memuat Project Management & Monitoring</div></div>
+<script type="text/babel" data-presets="react">
+/* global React, ReactDOM, html2canvas, supabase */
+const { useState, useMemo, useEffect, useRef } = React;
+
+/* ===== THEME ===== */
+const C = {
+  blue: "#0A6CB8", blueDk: "#08507F", blueSoft: "#E9F3FB",
+  green: "#16A75C", greenSoft: "#E6F6EE",
+  ink: "#13293D", text: "#1F2D3D", slate: "#6B7A8D",
+  bg: "#F5F9FD", surface: "#FFFFFF", line: "#E7EFF7",
+  amber: "#E89B1C", orange: "#E8833A", orangeSoft: "#FDF0E7", red: "#E11D48",
+};
+const STATUS = { todo: "Belum Mulai", doing: "Berjalan", done: "Selesai", cancel: "Dibatalkan" };
+const SMETA = {
+  [STATUS.todo]: { color: "#64748B", bg: "#EEF3F8", bar: "#B9C6D4" },
+  [STATUS.doing]: { color: C.blue, bg: C.blueSoft, bar: C.blue },
+  [STATUS.done]: { color: C.green, bg: C.greenSoft, bar: C.green },
+  [STATUS.cancel]: { color: C.red, bg: "#FDECEF", bar: C.red },
+};
+const KCOLS = [STATUS.todo, STATUS.doing, STATUS.done, STATUS.cancel];
+const PST = { open: "Terbuka", prog: "Proses", done: "Selesai" };
+const PMETA = {
+  [PST.open]: { color: C.red, bg: "#FDECEF" },
+  [PST.prog]: { color: C.amber, bg: "#FCF3E2" },
+  [PST.done]: { color: C.green, bg: C.greenSoft },
+};
+const SEV = ["Rendah", "Sedang", "Tinggi", "Kritis"];
+const SEVC = { Rendah: C.green, Sedang: C.amber, Tinggi: C.orange, Kritis: C.red };
+
+/* 3 KEGIATAN UTAMA */
+const ACTS = [
+  { key: "konsultan", label: "Konsultan", color: C.blue, soft: C.blueSoft, icon: "compass" },
+  { key: "kontraktor", label: "Kontraktor", color: C.green, soft: C.greenSoft, icon: "hat" },
+  { key: "transisi", label: "Transisi", color: C.orange, soft: C.orangeSoft, icon: "truck" },
+];
+const actOf = (k) => ACTS.find((a) => a.key === k) || ACTS[0];
+
+/* ROLE */
+const ROLE = { pm: "Project Management", admin: "Admin" };
+
+/* ===== UTIL ===== */
+const D = (s) => new Date(s + "T12:00:00");
+const iso = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`; };
+const days = (a, b) => Math.round((b - a) / 86400000);
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const MON = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+const fmtDate = (s) => { if (!s) return "-"; const d = D(s); return `${String(d.getDate()).padStart(2,"0")} ${MON[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; };
+const rp = (n) => "Rp " + Math.round(n || 0).toLocaleString("id-ID");
+const rpShort = (n) => { n = n || 0; if (Math.abs(n) >= 1e9) return "Rp " + (n / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 2 }) + " M"; if (Math.abs(n) >= 1e6) return "Rp " + (n / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 0 }) + " jt"; return rp(n); };
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+const stOf = (p) => (p >= 100 ? STATUS.done : p > 0 ? STATUS.doing : STATUS.todo);
+const mb = (b) => (b / 1048576).toFixed(2) + " MB";
+const HARI = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
+const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+const tglPanjang = (date) => { const d = date || new Date(); return `${HARI[d.getDay()]}, ${d.getDate()} ${BULAN[d.getMonth()]} ${d.getFullYear()}`; };
+const todayNoon = () => D(iso(new Date()));
+/* --- minggu ISO (untuk sumbu waktu Gantt) --- */
+const mondayOf = (d) => { const x = new Date(d); const off = (x.getDay() + 6) % 7; return addDays(x, -off); };
+const isoWeek = (d) => {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t - y0) / 86400000 + 1) / 7);
+};
+const isoWeekYear = (d) => { const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); const day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day); return t.getUTCFullYear(); };
+const nowISO = () => new Date().toISOString();
+const fmtStamp = (ts) => { const d = new Date(ts); if (isNaN(d)) return "-"; return `${String(d.getDate()).padStart(2,"0")} ${MON[d.getMonth()]} ${String(d.getFullYear()).slice(2)} · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
+const splitRange = (start, finish, names) => {
+  const s = D(start), f = D(finish), tot = days(s, f) + 1, n = names.length;
+  const per = Math.max(1, Math.floor(tot / n));
+  return names.map((nm, i) => {
+    const ss = addDays(s, Math.min(i * per, tot - 1));
+    const ff = i === n - 1 ? f : addDays(s, Math.min((i + 1) * per - 1, tot - 1));
+    return [nm, iso(ss), iso(ff), 0];
+  });
+};
+function useWinW() {
+  const [w, setW] = useState(typeof window !== "undefined" ? window.innerWidth : 1200);
+  useEffect(() => { const h = () => setW(window.innerWidth); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []);
+  return w;
+}
+
+/* ===== ICONS ===== */
+const ICONS = {
+  dashboard: (<g><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></g>),
+  calendar: (<g><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18M8 15h2M14 18h2" /></g>),
+  kanban: (<g><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18M15 3v18" /></g>),
+  wallet: (<g><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" /><path d="M3 5v14a2 2 0 0 0 2 2h16v-5" /><path d="M18 12a2 2 0 0 0 0 4h4v-4Z" /></g>),
+  folder: (<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />),
+  clipboard: (<g><rect x="8" y="2" width="8" height="4" rx="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M9 13h6M9 17h4" /></g>),
+  alert: (<g><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><path d="M12 9v4M12 17h.01" /></g>),
+  logout: (<g><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5M21 12H9" /></g>),
+  plus: (<path d="M5 12h14M12 5v14" />),
+  pencil: (<g><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></g>),
+  trash: (<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />),
+  x: (<path d="M18 6 6 18M6 6l12 12" />),
+  trending: (<g><path d="M22 7 13.5 15.5 8.5 10.5 2 17" /><path d="M16 7h6v6" /></g>),
+  dollar: (<g><circle cx="12" cy="12" r="10" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8M12 6v2m0 8v2" /></g>),
+  check: (<path d="M20 6 9 17l-5-5" />),
+  arrow: (<path d="M5 12h14M12 5l7 7-7 7" />),
+  hat: (<g><path d="M2 18a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1Z" /><path d="M10 10V5a2 2 0 0 1 4 0v5" /><path d="M4 15v-3a6 6 0 0 1 6-6M14 6a6 6 0 0 1 6 6v3" /></g>),
+  compass: (<g><circle cx="12" cy="12" r="10" /><path d="M16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88Z" /></g>),
+  truck: (<g><path d="M10 17h4V5H2v12h3" /><path d="M20 17h2v-4l-3-4h-5v8h2" /><circle cx="7.5" cy="17.5" r="2.5" /><circle cx="17.5" cy="17.5" r="2.5" /></g>),
+  upload: (<g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M17 8l-5-5-5 5M12 3v12" /></g>),
+  download: (<g><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M7 10l5 5 5-5M12 15V3" /></g>),
+  eye: (<g><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></g>),
+  file: (<g><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v5h5M16 13H8M16 17H8M10 9H8" /></g>),
+  menu: (<path d="M3 6h18M3 12h18M3 18h18" />),
+  chevL: (<path d="M15 18l-6-6 6-6" />),
+  chevR: (<path d="M9 18l6-6-6-6" />),
+  chevD: (<path d="M6 9l6 6 6-6" />),
+  camera: (<g><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" /><circle cx="12" cy="13" r="3" /></g>),
+  users: (<g><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></g>),
+  history: (<g><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" /></g>),
+  tasks: (<g><path d="M10 6h11M10 12h11M10 18h11" /><path d="M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17" /></g>),
+  grip: (<g fill="currentColor" stroke="none"><circle cx="9" cy="6" r="1.3" /><circle cx="9" cy="12" r="1.3" /><circle cx="9" cy="18" r="1.3" /><circle cx="15" cy="6" r="1.3" /><circle cx="15" cy="12" r="1.3" /><circle cx="15" cy="18" r="1.3" /></g>),
+};
+function Ic({ name, size = 18 }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>{ICONS[name] || null}</svg>;
+}
+/* Logo aplikasi: pakai logo.png (letakkan di root repo GitHub). Fallback ke ikon bila belum ada. */
+function Logo({ size = 36, radius = 10 }) {
+  const [ok, setOk] = useState(true);
+  if (!ok) return <div style={{ width: size, height: size, borderRadius: radius, background: C.blue, display: "grid", placeItems: "center", color: "#fff", flexShrink: 0 }}><Ic name="compass" size={Math.round(size * 0.55)} /></div>;
+  return <img src="logo.png" alt="Logo" onError={() => setOk(false)} style={{ width: size, height: size, borderRadius: radius, objectFit: "contain", background: "#fff", flexShrink: 0 }} />;
+}
+
+/* ===== SEED ===== */
+const PROJECT = { name: "MRT Jakarta — Fit Out Office Area", sub: "Lantai 20–22 · ±2.595 m²", statusDate: "2026-06-29" };
+const SEED_FEE = 720000000;
+const SEED_TERMS = [
+  ["T1", "Konsep Desain", 20, "2026-06-29"], ["T2", "Pengembangan Desain", 20, "2026-07-06"],
+  ["T3", "Dokumen Tender", 20, "2026-08-10"], ["T4", "Proses Tender", 5, "2026-09-04"],
+  ["T5", "Konstruksi 30%", 10, "2026-10-27"], ["T6", "Konstruksi 70%", 10, "2026-12-13"],
+  ["T7", "Konstruksi 100%", 12, "2027-01-18"], ["T8", "Masa Retensi", 3, "2027-04-18"],
+].map(([term, desc, percent, date]) => ({ id: uid(), term, desc, percent, date, proofUrl: null, proofName: null }));
+const A = 2595;
+const SEED_RAB = [
+  ["Preliminaries", 250000, "2026-09-14", "2027-01-17"], ["Demolish Work", 120000, "2026-09-14", "2026-10-04"],
+  ["Floor Work", 700000, "2026-10-05", "2026-11-29"], ["Wall & Partition Work", 600000, "2026-09-21", "2026-11-01"],
+  ["Wall Finish & Panel Work", 400000, "2026-10-26", "2026-12-13"], ["Door Work", 300000, "2026-11-09", "2026-12-20"],
+  ["Ceiling Work", 600000, "2026-10-12", "2026-12-06"], ["Customed Furniture Work", 500000, "2026-11-23", "2027-01-10"],
+  ["Product Furniture Work", 250000, "2026-12-21", "2027-01-17"], ["Workstation", 450000, "2026-12-14", "2027-01-17"],
+  ["Task Chair", 500000, "2026-12-28", "2027-01-17"], ["Accessories", 50000, "2027-01-04", "2027-01-17"],
+  ["Special lighting", 100000, "2026-11-30", "2027-01-03"], ["Sprinkler & fire ext.", 90000, "2026-09-21", "2026-10-25"],
+  ["Smoke detector & alarm", 80000, "2026-09-21", "2026-10-25"], ["MVAC Services", 200000, "2026-09-21", "2026-11-15"],
+  ["Electrical", 700000, "2026-09-21", "2026-12-20"], ["Data Voice Work", 500000, "2026-09-28", "2026-12-20"],
+  ["Security & Access", 130000, "2026-11-30", "2027-01-03"], ["Audio Video", 100000, "2026-12-14", "2027-01-10"],
+].map(([item, rate, start, finish]) => ({ id: uid(), item, qty: A, rate, start, finish, proofUrl: null, proofName: null }));
+SEED_RAB.push({ id: uid(), item: "Contingencies", qty: 1, rate: 1500000000, start: "2026-09-14", finish: "2027-01-17", proofUrl: null, proofName: null });
+
+/* Biaya kegiatan Transisi */
+const SEED_TRANS = [
+  ["Jasa Pindahan & Angkut", 1, 250000000, "2027-01-18", "2027-01-27"],
+  ["Material Packing & Labeling", 1, 60000000, "2027-01-04", "2027-01-15"],
+  ["Sewa Gudang Sementara", 1, 90000000, "2026-12-01", "2027-01-31"],
+  ["Instalasi IT & Jaringan", 1, 180000000, "2027-01-18", "2027-01-31"],
+  ["Cleaning & Commissioning", 1, 70000000, "2027-02-01", "2027-02-10"],
+].map(([item, qty, rate, start, finish]) => ({ id: uid(), item, qty, rate, start, finish, proofUrl: null, proofName: null }));
+
+/* --- Aktivitas per kegiatan (Pekerjaan + Sub Pekerjaan) --- */
+function mkAct(act, defs) {
+  const out = [];
+  defs.forEach(([name, start, finish, pct, subs]) => {
+    const pid = uid();
+    const hasSub = subs && subs.length;
+    out.push({ id: pid, act, parent: null, name, start, finish, percent: hasSub ? 0 : pct, status: stOf(hasSub ? 0 : pct), note: "", assignees: [] });
+    (subs || []).forEach(([sn, ss, sf, sp]) => out.push({ id: uid(), act, parent: pid, name: sn, start: ss, finish: sf, percent: sp, status: stOf(sp), note: "", assignees: [] }));
+  });
+  return out;
+}
+const KON_DEFS = (() => {
+  const s1 = splitRange("2026-05-07", "2026-06-29", ["Kick-off & Survei Data", "Konsep Tata Ruang", "Presentasi Konsep"]).map((x) => [x[0], x[1], x[2], 100]);
+  const s2 = splitRange("2026-06-30", "2026-07-06", ["Gambar Kerja Awal", "Material Board"]).map((x, i) => [x[0], x[1], x[2], i === 0 ? 60 : 10]);
+  const s3 = splitRange("2026-07-07", "2026-08-10", ["Pembuatan KAK", "Penyusunan BQ / RAB", "Spesifikasi Teknis"]);
+  const s4 = splitRange("2026-08-11", "2026-09-04", ["Market Survei", "Undangan & Aanwijzing", "Evaluasi Penawaran", "Penetapan Pemenang"]);
+  return [
+    ["Pra / Konsep Desain", "2026-05-07", "2026-06-29", 100, s1],
+    ["Pengembangan Desain", "2026-06-30", "2026-07-06", 35, s2],
+    ["Penyusunan Dokumen Tender", "2026-07-07", "2026-08-10", 0, s3],
+    ["Proses Tender", "2026-08-11", "2026-09-04", 0, s4],
+    ["Supervisi Konstruksi s/d 30%", "2026-09-14", "2026-10-27", 0, null],
+    ["Supervisi Konstruksi s/d 70%", "2026-10-28", "2026-12-13", 0, null],
+    ["Supervisi Konstruksi s/d 100%", "2026-12-14", "2027-01-18", 0, null],
+    ["Masa Retensi", "2027-01-19", "2027-04-18", 0, null],
+  ];
+})();
+const KON_SUBS_MAP = {
+  "Preliminaries": ["Mobilisasi & Direksi Keet", "Penerapan K3 & Safety", "Demobilisasi"],
+  "Floor Work": ["Screeding & Leveling", "Pemasangan Karpet", "Pemasangan Vinyl"],
+  "Electrical": ["Instalasi Kabel Feeder", "Panel & Distribusi", "Titik Lampu & Stop Kontak", "Testing & Commissioning"],
+  "Ceiling Work": ["Rangka Plafon", "Penutup & Finishing Plafon"],
+};
+const KTR_DEFS = SEED_RAB.filter((r) => r.item !== "Contingencies").map((r) => {
+  const names = KON_SUBS_MAP[r.item];
+  return [r.item, r.start, r.finish, 0, names ? splitRange(r.start, r.finish, names) : null];
+});
+const TRS_DEFS = [
+  ["Perencanaan Pindah", "2026-12-01", "2026-12-20", 0, splitRange("2026-12-01", "2026-12-20", ["Inventarisasi Aset", "Skenario & Jadwal Pindah"])],
+  ["Packing & Labeling", "2027-01-04", "2027-01-15", 0, null],
+  ["Mobilisasi & Penataan", "2027-01-18", "2027-01-27", 0, splitRange("2027-01-18", "2027-01-27", ["Pemindahan Furniture", "Penataan Workstation"])],
+  ["Setting IT & Jaringan", "2027-01-18", "2027-01-31", 0, splitRange("2027-01-18", "2027-01-31", ["Instalasi Jaringan", "Migrasi Perangkat Kerja"])],
+  ["Commissioning & Serah Terima", "2027-02-01", "2027-02-10", 0, null],
+  ["Okupansi Bertahap", "2027-02-11", "2027-02-28", 0, null],
+];
+const SEED_TASKS = [...mkAct("konsultan", KON_DEFS), ...mkAct("kontraktor", KTR_DEFS), ...mkAct("transisi", TRS_DEFS)];
+
+const SEED_DOCS = [
+  { id: uid(), name: "Kontrak Konsultan", file: "kontrak-konsultan.pdf", category: "Kontrak", size: 2210000, date: "2026-05-20", url: null, example: true },
+  { id: uid(), name: "Gambar Layout Lt.20", file: "layout-lt20.pdf", category: "Desain", size: 5430000, date: "2026-06-12", url: null, example: true },
+];
+const SEED_PUNCH = [
+  { id: uid(), title: "Dinding partisi tidak siku", stage: "Wall & Partition Work", loc: "Koridor utara Lt.21", severity: "Sedang", status: PST.open, due: "2026-10-30", note: "Deviasi > 5mm di koridor utara.", photo: null },
+  { id: uid(), title: "Cat plafon belang", stage: "Ceiling Work", loc: "Ruang kerja Lt.20", severity: "Rendah", status: PST.prog, due: "2026-12-01", note: "", photo: null },
+  { id: uid(), title: "Titik stop kontak kurang", stage: "Electrical", loc: "Meeting room B Lt.22", severity: "Tinggi", status: PST.open, due: "2026-11-20", note: "Meeting room B perlu tambah 4 titik.", photo: null },
+  { id: uid(), title: "Revisi tata letak ruang rapat", stage: "Pengembangan Desain", loc: "Lt.22", severity: "Sedang", status: PST.done, due: "2026-07-04", note: "Sudah disetujui owner.", photo: null },
+];
+const SEED_USERS = [
+  { id: uid(), name: "Project Manager", email: "pm@mrt.co.id", role: ROLE.pm, active: true },
+  { id: uid(), name: "Admin Proyek", email: "admin@mrt.co.id", role: ROLE.admin, active: true },
+];
+const SEED_MYTASKS = [
+  { id: uid(), owner: "pm@mrt.co.id", text: "Review gambar kerja Lt.21", done: false },
+  { id: uid(), owner: "pm@mrt.co.id", text: "Kirim undangan aanwijzing", done: true },
+  { id: uid(), owner: "admin@mrt.co.id", text: "Arsipkan BAST termin 1", done: false },
+];
+
+/* ===== SUPABASE (BACKEND LIVE) =====================================
+   Isi 2 baris di bawah dengan kredensial project Supabase-mu.
+   Ambil di: Supabase Dashboard -> Project Settings -> API.
+     SUPABASE_URL      = "https://vrevaqqvxvbnnylpyrnf.supabase.co"     (mis. https://abcd1234.supabase.co)
+     SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZyZXZhcXF2eHZibm55bHB5cm5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3Nzk5MDEsImV4cCI6MjEwMDM1NTkwMX0.2UQQEE_mBW9-lMssWHNHL7HRAxQkkhGLnjdRkMFmCKk" key (AMAN di sini; dilindungi RLS)
+   JANGAN tempel key "service_role" di file ini.
+   Biarkan kosong ("") untuk mode DEMO (data contoh, tanpa server). */
+const SUPABASE_URL = "";
+const SUPABASE_ANON_KEY = "";
+const PROJECT_KEY = "MRT-FO-2026";
+const BUCKET = "project-files";
+
+const LIVE = !!(SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase !== "undefined" && supabase.createClient);
+const sb = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+/* --- pemetaan field aplikasi <-> kolom DB --- */
+const taskToRow = (t) => ({ id: t.id, act: t.act, parent_id: t.parent || null, name: t.name, start_date: t.start, finish_date: t.finish, percent: Number(t.percent) || 0, status: t.status, note: t.note || null, assignees: t.assignees || [] });
+const taskFromRow = (r) => ({ id: r.id, act: r.act, parent: r.parent_id || null, name: r.name, start: r.start_date, finish: r.finish_date, percent: Number(r.percent) || 0, status: r.status, note: r.note || "", assignees: r.assignees || [] });
+const costToRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
+const costFromRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start: r.start_date, finish: r.finish_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
+const termToRow = (t) => ({ id: t.id, term: t.term, descr: t.desc, percent: Number(t.percent) || 0, pay_date: t.date, proof_url: t.proofUrl || null, proof_name: t.proofName || null });
+const termFromRow = (r) => ({ id: r.id, term: r.term, desc: r.descr, percent: Number(r.percent) || 0, date: r.pay_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
+const docToRow = (d) => ({ id: d.id, name: d.name, file_name: d.file, category: d.category, size_bytes: Math.round(Number(d.size) || 0), doc_date: d.date, url: d.url || null, is_example: !!d.example });
+const docFromRow = (r) => ({ id: r.id, name: r.name, file: r.file_name, category: r.category, size: Number(r.size_bytes) || 0, date: r.doc_date, url: r.url || null, example: !!r.is_example });
+const punchToRow = (p) => ({ id: p.id, title: p.title, stage: p.stage, loc: p.loc || null, severity: p.severity, status: p.status, due_date: p.due, note: p.note || null, photo_url: p.photo || null });
+const punchFromRow = (r) => ({ id: r.id, title: r.title, stage: r.stage, loc: r.loc || "", severity: r.severity, status: r.status, due: r.due_date, note: r.note || "", photo: r.photo_url || null });
+const userToRow = (u) => ({ id: u.id, name: u.name, email: (u.email || "").toLowerCase(), role: u.role, active: !!u.active });
+const userFromRow = (r) => ({ id: r.id, name: r.name, email: r.email || "", role: r.role || ROLE.admin, active: r.active !== false });
+const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done });
+const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done });
+const logToRow = (l) => ({ id: l.id, ts: l.ts, actor: l.actor, action: l.action, detail: l.detail || null });
+const logFromRow = (r) => ({ id: r.id, ts: r.ts, actor: r.actor || "", action: r.action || "", detail: r.detail || "" });
+
+async function loadTable(table, fromRow) {
+  const { data, error } = await sb.from(table).select("*").eq("project_key", PROJECT_KEY).order("pos", { ascending: true });
+  if (error) throw error;
+  return (data || []).map(fromRow);
+}
+async function pushTable(table, rows, toRow) {
+  const payload = rows.map((r, i) => ({ ...toRow(r), project_key: PROJECT_KEY, pos: i }));
+  if (payload.length) { const { error } = await sb.from(table).upsert(payload); if (error) throw error; }
+  const ids = rows.map((r) => r.id);
+  let q = sb.from(table).delete().eq("project_key", PROJECT_KEY);
+  if (ids.length) q = q.not("id", "in", "(" + ids.map((x) => '"' + x + '"').join(",") + ")");
+  const { error } = await q; if (error) throw error;
+}
+async function ensureSeed() {
+  const { data, error } = await sb.from("app_meta").select("project_key").eq("project_key", PROJECT_KEY).maybeSingle();
+  if (error) throw error;
+  if (data) return;
+  await sb.from("app_meta").upsert({ project_key: PROJECT_KEY, name: PROJECT.name, sub: PROJECT.sub, status_date: PROJECT.statusDate, fee: SEED_FEE });
+  await pushTable("app_tasks", SEED_TASKS, taskToRow);
+  await pushTable("app_rab", SEED_RAB, costToRow);
+  await pushTable("app_trans", SEED_TRANS, costToRow);
+  await pushTable("app_terms", SEED_TERMS, termToRow);
+  await pushTable("app_docs", SEED_DOCS, docToRow);
+  await pushTable("app_punch", SEED_PUNCH, punchToRow);
+  await pushTable("app_mytasks", [], myToRow);
+}
+async function loadAll() {
+  await ensureSeed();
+  const { data: meta } = await sb.from("app_meta").select("*").eq("project_key", PROJECT_KEY).maybeSingle();
+  const [tasks, rab, trans, terms, docs, punch, users, mytasks, logs] = await Promise.all([
+    loadTable("app_tasks", taskFromRow), loadTable("app_rab", costFromRow), loadTable("app_trans", costFromRow),
+    loadTable("app_terms", termFromRow), loadTable("app_docs", docFromRow), loadTable("app_punch", punchFromRow),
+    loadTable("app_users", userFromRow), loadTable("app_mytasks", myFromRow), loadTable("app_logs", logFromRow),
+  ]);
+  return { meta, tasks, rab, trans, terms, docs, punch, users, mytasks, logs };
+}
+async function saveMetaFee(fee) {
+  if (!LIVE) return;
+  const { error } = await sb.from("app_meta").upsert({ project_key: PROJECT_KEY, name: PROJECT.name, sub: PROJECT.sub, status_date: PROJECT.statusDate, fee: Number(fee) || 0 });
+  if (error) console.error("meta", error);
+}
+async function uploadDataUrl(dataUrl, prefix) {
+  if (!LIVE || !dataUrl || dataUrl.indexOf("data:") !== 0) return dataUrl || null;
+  const blob = await (await fetch(dataUrl)).blob();
+  const ext = ((blob.type.split("/")[1] || "bin").split(";")[0]) || "bin";
+  const path = PROJECT_KEY + "/" + prefix + "/" + uid() + "." + ext;
+  const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: blob.type, upsert: true });
+  if (error) throw error;
+  return sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}
+async function uploadFile(file, prefix) {
+  if (!LIVE) return URL.createObjectURL(file);
+  const path = PROJECT_KEY + "/" + prefix + "/" + uid() + "-" + file.name.replace(/[^\w.\-]+/g, "_");
+  const { error } = await sb.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: true });
+  if (error) throw error;
+  return sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}
+function useSync(table, rows, toRow, ready) {
+  const skip = useRef(true);
+  useEffect(() => {
+    if (!LIVE || !ready) return;
+    if (skip.current) { skip.current = false; return; }
+    const h = setTimeout(() => { pushTable(table, rows, toRow).catch((e) => console.error("sync " + table, e)); }, 700);
+    return () => clearTimeout(h);
+  }, [rows, ready]);
+}
+
+/* ===== S-CURVE ===== */
+function periods() {
+  const out = []; const add = (y, m) => { const last = new Date(y, m, 0).getDate(); out.push(D(`${y}-${String(m).padStart(2,"0")}-15`)); out.push(D(`${y}-${String(m).padStart(2,"0")}-${String(last).padStart(2,"0")}`)); };
+  for (let m = 5; m <= 12; m++) add(2026, m); for (let m = 1; m <= 4; m++) add(2027, m); return out;
+}
+const frac = (s, f, d) => { const ds = D(s), df = D(f); if (d >= df) return 1; if (d < ds) return 0; return (days(ds, d) + 1) / (days(ds, df) + 1); };
+const sumCost = (list) => list.reduce((a, r) => a + (Number(r.qty) || 0) * (Number(r.rate) || 0), 0);
+function valsAt(rab, fee, terms, trans, d) {
+  const cT = sumCost(rab), tT = sumCost(trans), proj = cT + fee + tT;
+  const ce = rab.reduce((a, r) => a + (Number(r.qty) || 0) * (Number(r.rate) || 0) * frac(r.start, r.finish, d), 0);
+  const te = trans.reduce((a, r) => a + (Number(r.qty) || 0) * (Number(r.rate) || 0) * frac(r.start, r.finish, d), 0);
+  const ke = terms.filter((t) => D(t.date) <= d).reduce((a, t) => a + ((Number(t.percent) || 0) / 100) * fee, 0);
+  return {
+    Kontraktor: cT ? +(ce / cT * 100).toFixed(1) : 0,
+    Konsultan: fee ? +(ke / fee * 100).toFixed(1) : 0,
+    Transisi: tT ? +(te / tT * 100).toFixed(1) : 0,
+    Total: proj ? +((ce + ke + te) / proj * 100).toFixed(1) : 0,
+  };
+}
+function sCurve(rab, fee, terms, trans) {
+  return periods().map((d) => ({ label: `${MON[d.getMonth()]} ${String(d.getDate()).padStart(2,"0")}`, ...valsAt(rab, fee, terms, trans, d) }));
+}
+function todayMarkerData(rab, fee, terms, trans) {
+  const ps = periods(); const td = todayNoon(); const n = ps.length;
+  let idx;
+  if (td <= ps[0]) idx = 0;
+  else if (td >= ps[n - 1]) idx = n - 1;
+  else { idx = n - 1; for (let i = 0; i < n - 1; i++) { if (td >= ps[i] && td <= ps[i + 1]) { idx = i + (td - ps[i]) / (ps[i + 1] - ps[i]); break; } } }
+  return { idx, n, vals: valsAt(rab, fee, terms, trans, td), label: `${td.getDate()} ${MON[td.getMonth()]}` };
+}
+const SERIES = [["Kontraktor", C.green], ["Konsultan", C.blue], ["Transisi", C.orange], ["Total", C.ink]];
+function SCurveChart({ data, today }) {
+  const W = 1080, H = 260, pad = { l: 34, r: 16, t: 14, b: 24 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, n = data.length;
+  const x = (i) => pad.l + (n <= 1 ? 0 : i * (iw / (n - 1)));
+  const y = (v) => pad.t + ih - (v / 100) * ih;
+  const path = (k) => data.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d[k]).toFixed(1)}`).join(" ");
+  const tx = today ? x(today.idx) : null;
+  const boxW = 122, boxH = 74;
+  const rightSide = tx != null && tx > W - pad.r - boxW - 12;
+  const boxX = tx == null ? 0 : Math.max(pad.l + 2, Math.min(W - pad.r - boxW, rightSide ? tx - boxW - 8 : tx + 8));
+  const boxY = pad.t + 6;
+  return (
+    <div style={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" style={{ display: "block", width: "100%", height: "auto", maxHeight: 320 }}>
+        {[0, 25, 50, 75, 100].map((g) => (<g key={g}><line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={pad.l - 6} y={y(g) + 3} textAnchor="end" fontSize="9" fill={C.slate}>{g}%</text></g>))}
+        {data.map((d, i) => (i % 3 === 0 ? <text key={i} x={x(i)} y={H - 7} textAnchor="middle" fontSize="8.5" fill={C.slate}>{d.label}</text> : null))}
+        <path d={path("Kontraktor")} fill="none" stroke={C.green} strokeWidth="2.2" />
+        <path d={path("Konsultan")} fill="none" stroke={C.blue} strokeWidth="2.2" />
+        <path d={path("Transisi")} fill="none" stroke={C.orange} strokeWidth="2.2" />
+        <path d={path("Total")} fill="none" stroke={C.ink} strokeWidth="1.8" strokeDasharray="5 4" />
+        {tx != null && <g>
+          <line x1={tx} x2={tx} y1={pad.t} y2={pad.t + ih} stroke={C.amber} strokeWidth="1.6" strokeDasharray="4 3" />
+          {SERIES.map(([k, col]) => <circle key={k} cx={tx} cy={y(today.vals[k])} r="3.2" fill={col} stroke="#fff" strokeWidth="1.3" />)}
+          <rect x={boxX} y={boxY} width={boxW} height={boxH} rx="7" fill="#FFFFFF" stroke={C.amber} strokeWidth="1.2" />
+          <text x={boxX + 8} y={boxY + 14} fontSize="9" fontWeight="700" fill={C.amber}>Hari ini · {today.label}</text>
+          {SERIES.map(([k, col], i) => <text key={k} x={boxX + 8} y={boxY + 27 + i * 11} fontSize="9.2" fontWeight="700" fill={col}>{k} {today.vals[k]}%</text>)}
+        </g>}
+      </svg>
+    </div>
+  );
+}
+
+/* ===== UI PRIMITIVES ===== */
+function Btn({ children, onClick, kind = "primary", size = "md", style, ...r }) {
+  const base = { border: "1px solid transparent", borderRadius: 10, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, transition: ".15s", whiteSpace: "nowrap", fontFamily: "inherit" };
+  const sz = { sm: { padding: "6px 11px", fontSize: 12.5 }, md: { padding: "9px 15px", fontSize: 13.5 } };
+  const kn = { primary: { background: C.blue, color: "#fff" }, green: { background: C.green, color: "#fff" }, red: { background: C.red, color: "#fff" }, ghost: { background: "#fff", color: C.ink, border: `1px solid ${C.line}` } };
+  return <button onClick={onClick} style={{ ...base, ...sz[size], ...kn[kind], ...style }} {...r}>{children}</button>;
+}
+const inS = { width: "100%", padding: "9px 11px", border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 13.5, color: C.ink, outline: "none", fontFamily: "inherit", background: "#fff" };
+const Input = (p) => <input {...p} style={{ ...inS, ...(p.style || {}) }} />;
+const Sel = ({ children, ...p }) => <select {...p} style={{ ...inS, ...(p.style || {}) }}>{children}</select>;
+const Area = (p) => <textarea {...p} style={{ ...inS, resize: "vertical", minHeight: 64, ...(p.style || {}) }} />;
+function Field({ label, children }) { return <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 4 }}>{label}<div style={{ marginTop: 4 }}>{children}</div></label>; }
+function Card({ children, style }) { return <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 18, boxShadow: "0 1px 2px rgba(16,42,67,.04)", minWidth: 0, ...style }}>{children}</div>; }
+function CardHead({ icon, title, right, color = C.blue }) {
+  return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}><span style={{ width: 30, height: 30, borderRadius: 9, background: color + "16", color, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={icon} size={16} /></span><span style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{title}</span></div>{right}
+  </div>;
+}
+function Modal({ title, onClose, children, width = 460 }) {
+  return <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(19,41,61,.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 90, padding: 16 }}>
+    <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width, maxWidth: "100%", boxShadow: "0 30px 70px rgba(19,41,61,.25)", maxHeight: "92vh", overflow: "auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${C.line}` }}><div style={{ fontWeight: 700, color: C.ink, fontSize: 16 }}>{title}</div><button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.slate }}><Ic name="x" size={20} /></button></div>
+      <div style={{ padding: 20 }}>{children}</div>
+    </div></div>;
+}
+function ActTag({ act }) { const a = actOf(act); return <span style={{ fontSize: 11, fontWeight: 700, color: a.color, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><span style={{ width: 7, height: 7, borderRadius: 99, background: a.color, flexShrink: 0 }} />{a.label}</span>; }
+function Pill({ text, color, bg }) { return <span style={{ fontSize: 11, fontWeight: 700, color, background: bg, padding: "3px 9px", borderRadius: 99, whiteSpace: "nowrap" }}>{text}</span>; }
+const iconBtn = { background: "none", border: "none", cursor: "pointer", color: C.slate, padding: 5, borderRadius: 7, display: "grid", placeItems: "center" };
+function Empty({ text }) { return <div style={{ textAlign: "center", color: C.slate, fontSize: 13, padding: "26px 8px" }}>{text}</div>; }
+
+/* ===== LOGIN ===== */
+const USERS = [
+  { u: "pm", p: "pm123", name: "Project Manager", role: ROLE.pm, email: "pm@mrt.co.id" },
+  { u: "admin", p: "admin123", name: "Admin Proyek", role: ROLE.admin, email: "admin@mrt.co.id" },
+];
+function Login({ onLogin, live }) {
+  const [u, setU] = useState(""), [p, setP] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setErr("");
+    if (live) {
+      if (!u.trim() || !p) { setErr("Email dan password wajib diisi."); return; }
+      setBusy(true);
+      try {
+        const { error } = await sb.auth.signInWithPassword({ email: u.trim(), password: p });
+        if (error) { setErr(error.message || "Gagal masuk."); setBusy(false); }
+      } catch (e) { setErr("Gagal terhubung ke server."); setBusy(false); }
+    } else {
+      const f = USERS.find((x) => x.u === u.trim() && x.p === p);
+      if (f) onLogin({ name: f.name, role: f.role, email: f.email }); else setErr("Username atau password salah.");
+    }
+  };
+  return <div style={{ minHeight: "100vh", background: `linear-gradient(135deg,${C.blueSoft},${C.greenSoft})`, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div style={{ width: 400, maxWidth: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18, justifyContent: "center" }}>
+        <Logo size={40} radius={11} />
+        <div><div style={{ fontWeight: 800, fontSize: 18, color: C.ink }}>Fit Out Monitoring Portal</div><div style={{ fontSize: 12, color: C.slate }}>General Affairs Department</div></div>
+      </div>
+      <div style={{ background: "#fff", borderRadius: 18, padding: 26, boxShadow: "0 20px 50px rgba(10,108,184,.14)" }}>
+        <div style={{ fontWeight: 700, fontSize: 19, color: C.ink }}>Selamat datang</div>
+        <div style={{ fontSize: 13, color: C.slate, marginBottom: 18, marginTop: 2 }}>{live ? "Masuk dengan email & password akun Supabase." : "Silakan isi username dan password."}</div>
+        <Field label={live ? "Email" : "Username"}><Input type={live ? "email" : "text"} value={u} onChange={(e) => setU(e.target.value)} placeholder={live ? "nama@perusahaan.com" : "pm / admin"} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+        <div style={{ height: 12 }} />
+        <Field label="Password"><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+        {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
+        <Btn onClick={submit} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : "Masuk"} {!busy && <Ic name="arrow" size={16} />}</Btn>
+        {!live && <div className="g2" style={{ marginTop: 14 }}>
+          {USERS.map((x) => <button key={x.u} onClick={() => { setU(x.u); setP(x.p); setErr(""); }} style={{ textAlign: "left", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 11, background: C.bg, cursor: "pointer" }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{x.role}</div><div style={{ fontSize: 11, color: C.slate }}>{x.u} / {x.p}</div></button>)}
+        </div>}
+      </div>
+    </div>
+  </div>;
+}
+
+/* ===== HIRARKI TUGAS ===== */
+function childrenOf(tasks, id) { return tasks.filter((t) => t.parent === id); }
+function rollup(t, kids) {
+  if (!kids.length) return t;
+  let mn = D(kids[0].start), mx = D(kids[0].finish);
+  kids.forEach((c) => { const s = D(c.start), f = D(c.finish); if (s < mn) mn = s; if (f > mx) mx = f; });
+  const act = kids.filter((c) => c.status !== STATUS.cancel);
+  let tot = 0, dn = 0;
+  act.forEach((c) => { const d = days(D(c.start), D(c.finish)) + 1; tot += d; dn += d * (Number(c.percent) || 0); });
+  const pct = tot ? Math.round(dn / tot) : 0;
+  const st = act.length === 0 ? STATUS.cancel : stOf(pct);
+  return { ...t, start: iso(mn), finish: iso(mx), percent: pct, status: st };
+}
+/* daftar baris Gantt (pekerjaan + sub pekerjaan) untuk 1 kegiatan */
+function buildRows(tasks, act, collapsed, all) {
+  const list = tasks.filter((t) => t.act === act);
+  const out = [];
+  list.filter((t) => !t.parent).forEach((p) => {
+    const kids = list.filter((k) => k.parent === p.id);
+    const parent = rollup(p, kids);
+    out.push({ ...parent, level: 0, kids: kids.length });
+    if (all || !collapsed[p.id]) kids.forEach((k) => out.push({ ...k, level: 1, kids: 0 }));
+  });
+  return out;
+}
+/* progres keseluruhan (tertimbang durasi, hanya daun) */
+function progressOf(tasks, act) {
+  const list = tasks.filter((t) => (!act || t.act === act));
+  const leaves = list.filter((t) => !list.some((x) => x.parent === t.id) && t.status !== STATUS.cancel);
+  let tot = 0, dn = 0;
+  leaves.forEach((t) => { const d = days(D(t.start), D(t.finish)) + 1; tot += d; dn += d * (Number(t.percent) || 0); });
+  return tot ? Math.round(dn / tot) : 0;
+}
+
+/* ===== GANTT (sumbu: Bulan + Minggu ke-, garis hari ini, tooltip tanggal) ===== */
+function Gantt({ tasks, act, statusDate, editable, onChange, onEdit, onDelete, onAddSub, forExport }) {
+  const [drag, setDrag] = useState(null);
+  const [collapsed, setCollapsed] = useState({});
+  const [tip, setTip] = useState(null);
+  const w = useWinW();
+  const compact = w < 760;
+  const wpx = forExport ? 20 : (compact ? 24 : 30);      // lebar 1 minggu (px)
+  const px = wpx / 7;                                     // lebar 1 hari
+  const rh = forExport ? 26 : 42, hMon = forExport ? 18 : 22, hWk = forExport ? 16 : 20;
+  const hh = hMon + hWk;
+  const leftW = forExport ? 240 : (compact ? 186 : (editable ? 392 : 286));
+  const rows = useMemo(() => buildRows(tasks, act, collapsed, forExport), [tasks, act, collapsed, forExport]);
+
+  /* rentang selalu mencakup HARI INI + tanggal status, supaya garis penanda
+     tampil di semua kegiatan (bukan cuma yang jadwalnya sedang berjalan) */
+  const range = useMemo(() => {
+    let mn = null, mx = null;
+    rows.forEach((t) => { const s = D(t.start), f = D(t.finish); if (!mn || s < mn) mn = s; if (!mx || f > mx) mx = f; });
+    if (!mn) { mn = D("2026-05-01"); mx = D("2027-04-30"); }
+    const marks = [todayNoon(), D(statusDate)];
+    marks.forEach((d) => { if (d < mn) mn = d; if (d > mx) mx = d; });
+    return { min: mondayOf(addDays(mn, -7)), max: addDays(mondayOf(addDays(mx, 7)), 6) };
+  }, [rows, statusDate]);
+
+  const totalDays = days(range.min, range.max) + 1;
+  const W = totalDays * px;
+  const xOf = (s) => days(range.min, D(s)) * px;
+  const wOf = (s, f) => (days(D(s), D(f)) + 1) * px;
+
+  const weeks = useMemo(() => {
+    const out = []; let c = new Date(range.min);
+    while (c <= range.max) { out.push({ start: new Date(c), left: days(range.min, c) * px, wk: isoWeek(c), yr: isoWeekYear(c) }); c = addDays(c, 7); }
+    return out;
+  }, [range, px]);
+  const months = useMemo(() => {
+    const a = []; let c = new Date(range.min.getFullYear(), range.min.getMonth(), 1);
+    while (c <= range.max) {
+      const s = c < range.min ? range.min : c;
+      const nx = new Date(c.getFullYear(), c.getMonth() + 1, 1);
+      const e = nx > range.max ? range.max : addDays(nx, -1);
+      a.push({ label: `${MON[c.getMonth()]} ${String(c.getFullYear()).slice(2)}`, left: days(range.min, s) * px, width: (days(s, e) + 1) * px });
+      c = nx;
+    }
+    return a;
+  }, [range, px]);
+
+  useEffect(() => {
+    if (!drag) return;
+    const move = (e) => { const dd = Math.round((e.clientX - drag.startX) / px); const s0 = D(drag.start), f0 = D(drag.finish); if (drag.mode === "move") onChange(drag.id, { start: iso(addDays(s0, dd)), finish: iso(addDays(f0, dd)) }); else { const nf = addDays(f0, dd); if (days(s0, nf) >= 0) onChange(drag.id, { finish: iso(nf) }); } };
+    const up = () => setDrag(null);
+    window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); };
+  }, [drag, onChange, px]);
+
+  const A2 = actOf(act);
+  const todayX = xOf(iso(todayNoon()));
+  const statusX = xOf(statusDate);
+  const showStatus = iso(D(statusDate)) !== iso(todayNoon());
+  const bodyH = rows.length * rh;
+  const outer = forExport ? { width: leftW + W } : {};
+  const wkText = (k) => `Minggu ke-${k.wk} (${k.yr}) · ${fmtDate(iso(k.start))} – ${fmtDate(iso(addDays(k.start, 6)))}`;
+
+  if (!rows.length) return <Card><Empty text="Belum ada pekerjaan pada kegiatan ini. Klik “Tambah Pekerjaan”." /></Card>;
+
+  return <div>
+    <div className={forExport ? "" : "scrollx"} style={{ borderRadius: 14, border: `1px solid ${C.line}`, background: "#fff", position: "relative" }}>
+      <div style={{ display: "flex", minWidth: leftW + W, ...outer }}>
+        {/* --- kolom kiri --- */}
+        <div style={{ width: leftW, flexShrink: 0, borderRight: `1px solid ${C.line}`, position: forExport ? "static" : "sticky", left: 0, background: "#fff", zIndex: 3 }}>
+          <div style={{ height: hh, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 11, fontWeight: 700, color: C.slate, borderBottom: `1px solid ${C.line}`, background: C.bg }}>PEKERJAAN / SUB PEKERJAAN</div>
+          {rows.map((t) => { const m = SMETA[t.status] || SMETA[STATUS.todo]; return (
+            <div key={t.id} style={{ height: rh, display: "flex", alignItems: "center", gap: 6, padding: `0 10px 0 ${10 + t.level * 16}px`, borderBottom: `1px solid ${C.line}`, background: t.level === 0 ? "#FCFDFE" : "#fff" }}>
+              {t.kids > 0 && !forExport ? <button onClick={() => setCollapsed((s) => ({ ...s, [t.id]: !s[t.id] }))} title={collapsed[t.id] ? "Buka" : "Tutup"} style={{ ...iconBtn, padding: 2, transform: collapsed[t.id] ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={14} /></button> : <span style={{ width: t.level === 0 ? 18 : 0 }} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: forExport ? 11 : (compact ? 12 : 13), fontWeight: t.level === 0 ? 700 : 500, color: t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: t.status === STATUS.cancel ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                {!compact && <div style={{ fontSize: 10.5, color: C.slate }}>{fmtDate(t.start)} → {fmtDate(t.finish)}{t.kids > 0 ? ` · ${t.kids} sub` : ""}</div>}
+              </div>
+              <span style={{ width: 7, height: 7, borderRadius: 99, background: m.bar, flexShrink: 0 }} title={t.status} />
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: t.percent >= 100 ? C.green : C.slate, fontVariantNumeric: "tabular-nums", minWidth: 30, textAlign: "right" }}>{t.percent}%</span>
+              {editable && !forExport && <div style={{ display: "flex", gap: 1 }}>
+                {t.level === 0 && <button title="Tambah sub pekerjaan" onClick={() => onAddSub(t)} style={{ ...iconBtn, color: C.blue }}><Ic name="plus" size={13} /></button>}
+                <button title="Edit" onClick={() => onEdit(t)} style={iconBtn}><Ic name="pencil" size={13} /></button>
+                <button title="Hapus" onClick={() => onDelete(t.id)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={13} /></button>
+              </div>}
+            </div>); })}
+        </div>
+
+        {/* --- timeline --- */}
+        <div style={{ position: "relative", width: W, flexShrink: 0 }} onMouseLeave={() => setTip(null)}>
+          {/* header: baris bulan */}
+          <div style={{ height: hMon, background: C.bg, position: "relative", borderBottom: `1px solid ${C.line}` }}>
+            {months.map((m, i) => <div key={i} style={{ position: "absolute", left: m.left, width: m.width, top: 0, height: hMon, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: C.ink, letterSpacing: .2, overflow: "hidden", whiteSpace: "nowrap" }}>{m.width > 40 ? m.label : ""}</div>)}
+          </div>
+          {/* header: baris minggu ke- */}
+          <div style={{ height: hWk, background: "#fff", position: "relative", borderBottom: `1px solid ${C.line}` }}>
+            {weeks.map((k, i) => <div key={i}
+              onMouseEnter={() => !forExport && setTip({ left: k.left + wpx / 2, text: wkText(k) })}
+              title={wkText(k)}
+              style={{ position: "absolute", left: k.left, width: wpx, top: 0, height: hWk, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: C.slate, cursor: forExport ? "default" : "help" }}>{k.wk}</div>)}
+          </div>
+          {/* grid mingguan + penanda */}
+          <div style={{ position: "absolute", left: 0, top: hh, width: W, height: bodyH, pointerEvents: "none", zIndex: 0 }}>
+            {weeks.map((k, i) => <div key={i} style={{ position: "absolute", left: k.left, top: 0, bottom: 0, width: 1, background: C.line }} />)}
+          </div>
+          {showStatus && <div title={`Tanggal status · ${fmtDate(statusDate)}`} style={{ position: "absolute", left: statusX, top: hh, height: bodyH, width: 2, background: C.blue, opacity: .35, zIndex: 1 }} />}
+          <div title={`Hari ini · ${tglPanjang()}`} style={{ position: "absolute", left: todayX, top: hMon, height: bodyH + hWk, width: 2, background: C.amber, zIndex: 2 }} />
+          <div style={{ position: "absolute", left: todayX, top: hMon + 1, transform: "translateX(-50%)", background: C.amber, color: "#fff", fontSize: 8.5, fontWeight: 800, borderRadius: 4, padding: "1px 5px", zIndex: 3, whiteSpace: "nowrap", pointerEvents: "none" }}>HARI INI</div>
+
+          {/* baris bar */}
+          {rows.map((t) => {
+            const isP = t.kids > 0;
+            const m = SMETA[t.status] || SMETA[STATUS.todo];
+            const col = isP ? A2.color : m.bar;
+            const canceled = t.status === STATUS.cancel;
+            return <div key={t.id} style={{ height: rh, borderBottom: `1px solid ${C.line}`, position: "relative", background: t.level === 0 ? "#FCFDFE" : "#fff" }}>
+              <div
+                onMouseDown={(e) => { if (!editable || forExport || isP) return; setDrag({ id: t.id, mode: "move", startX: e.clientX, start: t.start, finish: t.finish }); }}
+                title={`${t.name} · ${fmtDate(t.start)} → ${fmtDate(t.finish)} · ${t.percent}% · ${t.status}`}
+                style={{ position: "absolute", left: xOf(t.start), width: Math.max(6, wOf(t.start, t.finish)), top: isP ? (rh - 12) / 2 : (rh - 18) / 2, height: isP ? 12 : 18, borderRadius: isP ? 4 : 6, background: canceled ? "#FDECEF" : col + (isP ? "" : "26"), border: `1px ${canceled ? "dashed" : "solid"} ${col}`, cursor: editable && !isP && !forExport ? "grab" : "default", overflow: "hidden", zIndex: 1, opacity: canceled ? .75 : 1 }}>
+                {!isP && !canceled && <div style={{ width: `${Math.min(100, t.percent)}%`, height: "100%", background: col, opacity: .85 }} />}
+              </div>
+              {editable && !forExport && !isP && <div onMouseDown={(e) => { e.stopPropagation(); setDrag({ id: t.id, mode: "resize", startX: e.clientX, start: t.start, finish: t.finish }); }} style={{ position: "absolute", left: xOf(t.start) + Math.max(6, wOf(t.start, t.finish)) - 5, top: (rh - 18) / 2, width: 10, height: 18, cursor: "ew-resize", zIndex: 2 }} />}
+            </div>;
+          })}
+
+          {/* tooltip tanggal minggu */}
+          {tip && !forExport && <div style={{ position: "absolute", left: tip.left, top: hh + 4, transform: "translateX(-50%)", background: C.ink, color: "#fff", fontSize: 10.5, fontWeight: 600, padding: "5px 9px", borderRadius: 7, whiteSpace: "nowrap", pointerEvents: "none", zIndex: 9, boxShadow: "0 6px 18px rgba(19,41,61,.28)" }}>{tip.text}</div>}
+        </div>
+      </div>
+    </div>
+    {/* legenda seragam untuk semua kegiatan */}
+    {!forExport && <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10, fontSize: 11.5, color: C.slate, alignItems: "center" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 8, borderRadius: 3, background: A2.color }} /> Pekerjaan utama</span>
+      {KCOLS.map((s) => <span key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 8, borderRadius: 3, background: SMETA[s].bar + "40", border: `1px ${s === STATUS.cancel ? "dashed" : "solid"} ${SMETA[s].bar}` }} /> {s}</span>)}
+      <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 2, height: 12, background: C.amber }} /> Hari ini</span>
+      <span style={{ marginLeft: "auto", fontSize: 11 }}>Angka pada sumbu = minggu ke- dalam tahun · arahkan kursor untuk melihat tanggal</span>
+    </div>}
+  </div>;
+}
+
+/* ===== TASK MODAL ===== */
+function TaskModal({ task, act, tasks, onClose, onSave }) {
+  const parents = tasks.filter((t) => t.act === act && !t.parent && (!task || t.id !== task.id));
+  const hasKids = task ? tasks.some((t) => t.parent === task.id) : false;
+  const [f, setF] = useState(task || { name: "", act, parent: null, start: PROJECT.statusDate, finish: PROJECT.statusDate, percent: 0, status: STATUS.todo, note: "", assignees: [] });
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const save = () => { if (!f.name.trim()) return; const pct = Math.max(0, Math.min(100, Number(f.percent) || 0)); onSave({ ...f, act, percent: pct, status: f.status === STATUS.cancel ? STATUS.cancel : stOf(pct) }); };
+  return <Modal title={task ? "Edit Pekerjaan" : "Tambah Pekerjaan"} onClose={onClose} width={520}>
+    <Field label="Nama pekerjaan"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Proses Tender / Market Survei" /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Induk (kosongkan bila ini Pekerjaan utama)">
+      <Sel value={f.parent || ""} onChange={(e) => set("parent", e.target.value || null)} disabled={hasKids}>
+        <option value="">— Pekerjaan utama —</option>
+        {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </Sel>
+    </Field>{hasKids && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Pekerjaan ini punya sub pekerjaan, jadi induknya tidak bisa diubah.</div>}</div>
+    <div className="g2" style={{ marginTop: 12 }}>
+      <Field label="Mulai"><Input type="date" value={f.start} onChange={(e) => set("start", e.target.value)} disabled={hasKids} /></Field>
+      <Field label="Selesai"><Input type="date" value={f.finish} onChange={(e) => set("finish", e.target.value)} disabled={hasKids} /></Field>
+    </div>
+    <div style={{ marginTop: 12 }}><Field label={`Progres: ${hasKids ? "otomatis dari sub pekerjaan" : (f.percent + "%")}`}>
+      <Input type="range" min="0" max="100" step="5" value={f.percent} onChange={(e) => set("percent", Number(e.target.value))} disabled={hasKids} style={{ padding: 0, border: "none" }} />
+    </Field></div>
+    <div style={{ marginTop: 12 }}><Field label="Status">
+      <Sel value={f.status} onChange={(e) => set("status", e.target.value)} disabled={hasKids}>{KCOLS.map((s) => <option key={s}>{s}</option>)}</Sel>
+    </Field><div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Status mengikuti progres kecuali dipilih “{STATUS.cancel}”.</div></div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save}>{task ? "Simpan" : "Tambah"}</Btn></div>
+  </Modal>;
+}
+
+/* ===== KANBAN ===== */
+function Avatars({ emails, users, size = 22 }) {
+  const list = (emails || []).slice(0, 4);
+  if (!list.length) return <span style={{ fontSize: 10.5, color: C.slate }}>belum ditugaskan</span>;
+  return <div style={{ display: "flex", alignItems: "center" }}>
+    {list.map((em, i) => {
+      const u = users.find((x) => (x.email || "").toLowerCase() === (em || "").toLowerCase());
+      const nm = u ? u.name : em;
+      const pm = u && u.role === ROLE.pm;
+      return <span key={em} title={nm + (u ? ` · ${u.role}` : "")} style={{ width: size, height: size, borderRadius: 99, background: pm ? C.blueSoft : C.greenSoft, color: pm ? C.blue : C.green, border: "2px solid #fff", marginLeft: i ? -7 : 0, display: "grid", placeItems: "center", fontSize: size * .45, fontWeight: 800, flexShrink: 0 }}>{(nm || "?")[0].toUpperCase()}</span>;
+    })}
+    {(emails || []).length > 4 && <span style={{ fontSize: 10.5, color: C.slate, marginLeft: 5 }}>+{emails.length - 4}</span>}
+  </div>;
+}
+/* lihat detail (semua role) */
+function TaskViewModal({ task, tasks, users, onClose }) {
+  const parent = tasks.find((x) => x.id === task.parent);
+  const m = SMETA[task.status] || SMETA[STATUS.todo];
+  const row = (l, v) => <div style={{ display: "flex", gap: 10, padding: "7px 0", borderBottom: `1px solid ${C.line}` }}>
+    <div style={{ width: 130, fontSize: 12, color: C.slate, flexShrink: 0 }}>{l}</div>
+    <div style={{ fontSize: 13, color: C.ink, minWidth: 0, flex: 1 }}>{v}</div>
+  </div>;
+  return <Modal title="Detail Pekerjaan" onClose={onClose} width={520}>
+    <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, marginBottom: 2 }}>{task.name}</div>
+    <div style={{ marginBottom: 12 }}><ActTag act={task.act} /></div>
+    {row("Pekerjaan induk", parent ? parent.name : "— pekerjaan utama —")}
+    {row("Jadwal", `${fmtDate(task.start)} → ${fmtDate(task.finish)}`)}
+    {row("Durasi", `${days(D(task.start), D(task.finish)) + 1} hari`)}
+    {row("Progres", `${task.percent}%`)}
+    {row("Status", <Pill text={task.status} color={m.color} bg={m.bg} />)}
+    {row("Ditugaskan", <Avatars emails={task.assignees} users={users} />)}
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 5 }}>Catatan</div>
+      <div style={{ fontSize: 13, color: task.note ? C.ink : C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", whiteSpace: "pre-wrap", minHeight: 56 }}>{task.note || "Belum ada catatan."}</div>
+    </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><Btn kind="ghost" onClick={onClose}>Tutup</Btn></div>
+  </Modal>;
+}
+/* tambah catatan + assign orang (khusus Project Management) */
+function TaskNoteModal({ task, users, onSave, onClose }) {
+  const [note, setNote] = useState(task.note || "");
+  const [asg, setAsg] = useState(task.assignees || []);
+  const [status, setStatus] = useState(task.status);
+  const toggle = (em) => setAsg((s) => s.includes(em) ? s.filter((x) => x !== em) : [...s, em]);
+  const aktif = users.filter((u) => u.active);
+  return <Modal title="Catatan & Penugasan" onClose={onClose} width={520}>
+    <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink, marginBottom: 12 }}>{task.name}</div>
+    <Field label="Catatan pekerjaan"><Area value={note} onChange={(e) => setNote(e.target.value)} placeholder="mis. Menunggu approval owner, material sudah dipesan…" style={{ minHeight: 96 }} /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Status">
+      <Sel value={status} onChange={(e) => setStatus(e.target.value)}>{KCOLS.map((s) => <option key={s}>{s}</option>)}</Sel>
+    </Field></div>
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Ditugaskan kepada ({asg.length} orang)</div>
+      <div style={{ maxHeight: 190, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 11, padding: 6 }}>
+        {aktif.map((u) => { const on = asg.includes(u.email); return (
+          <button key={u.id} onClick={() => toggle(u.email)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px", borderRadius: 9, border: "none", background: on ? C.blueSoft : "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}>
+            <span style={{ width: 19, height: 19, borderRadius: 6, border: `2px solid ${on ? C.blue : "#C7D2DE"}`, background: on ? C.blue : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>{on && <Ic name="check" size={11} />}</span>
+            <span style={{ width: 26, height: 26, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11.5, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</span>
+            <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{u.name}</span><span style={{ display: "block", fontSize: 11, color: C.slate }}>{u.email} · {u.role}</span></span>
+          </button>); })}
+        {aktif.length === 0 && <Empty text="Belum ada user aktif. Tambahkan di menu Manajemen User." />}
+      </div>
+    </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+      <Btn kind="ghost" onClick={onClose}>Batal</Btn>
+      <Btn onClick={() => onSave({ note, assignees: asg, status })}>Simpan</Btn>
+    </div>
+  </Modal>;
+}
+function Kanban({ tasks, act, users, onMove, onView, onNote, canMove, canNote }) {
+  const list = tasks.filter((t) => t.act === act);
+  const leaves = list.filter((t) => !list.some((x) => x.parent === t.id));
+  const nameOfParent = (t) => { const p = list.find((x) => x.id === t.parent); return p ? p.name : null; };
+  const [over, setOver] = useState(null);
+  const A2 = actOf(act);
+  return <div className="g4">
+    {KCOLS.map((col) => {
+      const items = leaves.filter((t) => t.status === col);
+      const m = SMETA[col];
+      return <div key={col}
+        onDragOver={(e) => { if (!canMove) return; e.preventDefault(); setOver(col); }}
+        onDragLeave={() => setOver((o) => (o === col ? null : o))}
+        onDrop={(e) => { if (!canMove) return; e.preventDefault(); const id = e.dataTransfer.getData("text/plain"); setOver(null); if (id) onMove(id, col); }}
+        style={{ background: over === col ? m.bg : C.surface, border: `1px solid ${over === col ? m.color : C.line}`, borderRadius: 16, padding: 13, minHeight: 190, transition: ".15s", minWidth: 0, borderTop: `3px solid ${m.color}` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 6 }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: m.color, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{col}</span>
+          <Pill text={String(items.length)} color={m.color} bg={m.bg} />
+        </div>
+        <div style={{ display: "grid", gap: 9 }}>
+          {items.map((t) => {
+            const ci = KCOLS.indexOf(t.status);
+            const canceled = t.status === STATUS.cancel;
+            return <div key={t.id} draggable={canMove} onDragStart={(e) => e.dataTransfer.setData("text/plain", t.id)}
+              style={{ border: `1px solid ${C.line}`, borderLeft: `3px solid ${m.color}`, borderRadius: 12, padding: "10px 11px", background: "#fff", cursor: canMove ? "grab" : "default", boxShadow: "0 1px 2px rgba(16,42,67,.05)" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: canceled ? C.slate : C.ink, textDecoration: canceled ? "line-through" : "none" }}>{t.name}</div>
+                  {nameOfParent(t) && <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>↳ {nameOfParent(t)}</div>}
+                </div>
+                <div style={{ display: "flex", gap: 1, flexShrink: 0 }}>
+                  <button title="Lihat detail" onClick={() => onView(t)} style={{ ...iconBtn, color: C.blue, padding: 4 }}><Ic name="eye" size={14} /></button>
+                  {canNote && <button title="Catatan & penugasan" onClick={() => onNote(t)} style={{ ...iconBtn, padding: 4 }}><Ic name="pencil" size={13} /></button>}
+                </div>
+              </div>
+              {t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 7, background: C.bg, borderRadius: 8, padding: "6px 8px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{t.note}</div>}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 9, gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10.5, color: C.slate }}>{fmtDate(t.start)} → {fmtDate(t.finish)}</span>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: canceled ? C.red : A2.color }}>{canceled ? "batal" : t.percent + "%"}</span>
+              </div>
+              <div style={{ marginTop: 8 }}><Avatars emails={t.assignees} users={users} /></div>
+              {canMove && <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+                <Btn kind="ghost" size="sm" onClick={() => ci > 0 && onMove(t.id, KCOLS[ci - 1])} disabled={ci === 0} style={{ opacity: ci === 0 ? .45 : 1, padding: "4px 8px" }}><Ic name="chevL" size={12} /></Btn>
+                <Btn kind="ghost" size="sm" onClick={() => ci < KCOLS.length - 1 && onMove(t.id, KCOLS[ci + 1])} disabled={ci === KCOLS.length - 1} style={{ opacity: ci === KCOLS.length - 1 ? .45 : 1, padding: "4px 8px" }}><Ic name="chevR" size={12} /></Btn>
+              </div>}
+            </div>;
+          })}
+          {items.length === 0 && <div style={{ fontSize: 11.5, color: C.slate, textAlign: "center", padding: "16px 0" }}>Kosong</div>}
+        </div>
+      </div>;
+    })}
+  </div>;
+}
+
+/* ===== BUKTI PEMBAYARAN (PDF) ===== */
+function ProofCell({ row, onSet, log, label }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const pick = async (e) => {
+    const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
+    setErr("");
+    if (file.type !== "application/pdf") { setErr("Harus PDF"); return; }
+    if (file.size > 10 * 1048576) { setErr("Maks 10 MB"); return; }
+    setBusy(true);
+    try { const url = await uploadFile(file, "bukti"); onSet({ proofUrl: url, proofName: file.name }); log && log("Unggah bukti bayar", `${label}: ${file.name}`); }
+    catch (x) { setErr("Gagal unggah"); }
+    setBusy(false);
+  };
+  if (row.proofUrl) return <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+    <a href={row.proofUrl} target="_blank" rel="noreferrer" title={row.proofName || "Bukti pembayaran"} style={{ ...iconBtn, color: C.green, textDecoration: "none" }}><Ic name="file" size={15} /></a>
+    <button title="Hapus bukti" onClick={() => { onSet({ proofUrl: null, proofName: null }); log && log("Hapus bukti bayar", label); }} style={{ ...iconBtn, color: C.red, padding: 3 }}><Ic name="x" size={12} /></button>
+  </div>;
+  return <div>
+    <label title="Unggah bukti pembayaran (PDF)" style={{ ...iconBtn, color: busy ? C.slate : C.blue, cursor: busy ? "wait" : "pointer" }}>
+      <Ic name="upload" size={15} />
+      <input type="file" accept="application/pdf" onChange={pick} disabled={busy} style={{ display: "none" }} />
+    </label>
+    {err && <div style={{ fontSize: 10, color: C.red }}>{err}</div>}
+  </div>;
+}
+
+/* ===== BIAYA ===== */
+function Cell({ value, onChange, type = "text", align = "left", readOnly }) {
+  if (readOnly) return <div style={{ padding: "6px 7px", fontSize: 13, color: C.ink, textAlign: align, fontVariantNumeric: "tabular-nums", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{type === "date" ? fmtDate(value) : value}</div>;
+  return <input type={type} value={value} onChange={(e) => onChange(type === "number" ? Number(e.target.value) : e.target.value)}
+    style={{ width: "100%", border: "1px solid transparent", background: "transparent", padding: "6px 7px", borderRadius: 8, fontSize: 13, color: C.ink, textAlign: align, fontFamily: "inherit", fontVariantNumeric: "tabular-nums", outline: "none" }}
+    onFocus={(e) => { e.target.style.border = `1px solid ${C.blue}`; e.target.style.background = "#fff"; }}
+    onBlur={(e) => { e.target.style.border = "1px solid transparent"; e.target.style.background = "transparent"; }} />;
+}
+function CostTable({ title, icon, color, rows, setRows, log, tag, addLabel, footer, can }) {
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "8px 6px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap" };
+  const td = { padding: "2px 6px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink };
+  const upd = (id, k, v) => setRows((s) => s.map((r) => r.id === id ? { ...r, [k]: v } : r));
+  const total = sumCost(rows);
+  return <Card>
+    <CardHead icon={icon} color={color} title={title} right={<div style={{ fontSize: 13, color: C.slate }}>Total <b style={{ color }}>{rp(total)}</b></div>} />
+    <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
+      <thead><tr><th style={th}>Paket Pekerjaan</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit Rate</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={th}>Mulai</th><th style={th}>Selesai</th><th style={{ ...th, textAlign: "center" }}>Bukti</th><th style={th}></th></tr></thead>
+      <tbody>{rows.map((r) => <tr key={r.id}>
+        <td style={{ ...td, minWidth: 190 }}><Cell readOnly={!can.manage} value={r.item} onChange={(v) => upd(r.id, "item", v)} /></td>
+        <td style={{ ...td, width: 76 }}><Cell readOnly={!can.manage} type="number" align="right" value={r.qty} onChange={(v) => upd(r.id, "qty", v)} /></td>
+        <td style={{ ...td, width: 116 }}><Cell readOnly={!can.manage} type="number" align="right" value={r.rate} onChange={(v) => upd(r.id, "rate", v)} /></td>
+        <td style={{ ...td, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{rp(r.qty * r.rate)}</td>
+        <td style={{ ...td, width: 138 }}><Cell readOnly={!can.manage} type="date" value={r.start} onChange={(v) => upd(r.id, "start", v)} /></td>
+        <td style={{ ...td, width: 138 }}><Cell readOnly={!can.manage} type="date" value={r.finish} onChange={(v) => upd(r.id, "finish", v)} /></td>
+        <td style={{ ...td, width: 66, textAlign: "center" }}><div style={{ display: "flex", justifyContent: "center" }}><ProofCell row={r} label={`${tag} — ${r.item}`} log={log} onSet={(p) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, ...p } : x))} /></div></td>
+        <td style={{ ...td, width: 34 }}>{can.manage && <button onClick={() => { setRows((s) => s.filter((x) => x.id !== r.id)); log && log("Hapus item biaya", `${tag}: ${r.item}`); }} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>}</td>
+      </tr>)}
+      {rows.length === 0 && <tr><td colSpan={8}><Empty text="Belum ada item biaya." /></td></tr>}
+      </tbody>
+    </table></div>
+    {can.manage && <Btn kind="ghost" size="sm" onClick={() => { setRows((s) => [...s, { id: uid(), item: "Item baru", qty: 1, rate: 0, start: PROJECT.statusDate, finish: PROJECT.statusDate, proofUrl: null, proofName: null }]); log && log("Tambah item biaya", tag); }} style={{ marginTop: 12 }}><Ic name="plus" size={14} /> {addLabel}</Btn>}
+    {footer}
+  </Card>;
+}
+function Costs({ rab, setRab, trans, setTrans, fee, setFee, terms, setTerms, can, log }) {
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "8px 6px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap" };
+  const td = { padding: "2px 6px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink };
+  const uT = (id, k, v) => setTerms((s) => s.map((t) => t.id === id ? { ...t, [k]: v } : t));
+  const tp = terms.reduce((a, t) => a + Number(t.percent || 0), 0);
+  const cT = sumCost(rab), trT = sumCost(trans);
+  return <div className="g1">
+    <div className="g3">
+      <Stat label="Biaya Kontraktor" value={rpShort(cT)} sub="RAB" icon="hat" color={C.green} />
+      <Stat label="Biaya Konsultan" value={rpShort(fee)} sub={`${terms.length} termin`} icon="compass" color={C.blue} />
+      <Stat label="Biaya Transisi" value={rpShort(trT)} sub={`${trans.length} item`} icon="truck" color={C.orange} />
+    </div>
+
+    <CostTable title="Biaya Kontraktor (RAB)" icon="hat" color={C.green} rows={rab} setRows={setRab} log={log} can={can} tag="Kontraktor" addLabel="Tambah baris RAB" />
+
+    <Card>
+      <CardHead icon="compass" color={C.blue} title="Biaya Konsultan (Termin)" right={<div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 12.5, color: C.slate }}>Total Fee</span>{can.manage ? <Input type="number" value={fee} onChange={(e) => setFee(Number(e.target.value))} style={{ width: 160, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }} /> : <b style={{ fontSize: 14, color: C.blue }}>{rp(fee)}</b>}</div>} />
+      <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+        <thead><tr><th style={{ ...th, width: 66 }}>Tahap</th><th style={th}>Deskripsi</th><th style={{ ...th, textAlign: "right", width: 84 }}>Bobot %</th><th style={{ ...th, textAlign: "right" }}>Nilai</th><th style={th}>Tgl Bayar (BAST)</th><th style={{ ...th, textAlign: "center" }}>Bukti</th><th style={th}></th></tr></thead>
+        <tbody>{terms.map((t) => <tr key={t.id}>
+          <td style={td}><Cell readOnly={!can.manage} value={t.term} onChange={(v) => uT(t.id, "term", v)} /></td>
+          <td style={{ ...td, minWidth: 170 }}><Cell readOnly={!can.manage} value={t.desc} onChange={(v) => uT(t.id, "desc", v)} /></td>
+          <td style={{ ...td, width: 84 }}><Cell readOnly={!can.manage} type="number" align="right" value={t.percent} onChange={(v) => uT(t.id, "percent", v)} /></td>
+          <td style={{ ...td, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{rp((t.percent / 100) * fee)}</td>
+          <td style={{ ...td, width: 146 }}><Cell readOnly={!can.manage} type="date" value={t.date} onChange={(v) => uT(t.id, "date", v)} /></td>
+          <td style={{ ...td, width: 66, textAlign: "center" }}><div style={{ display: "flex", justifyContent: "center" }}><ProofCell row={t} label={`Konsultan — ${t.term} ${t.desc}`} log={log} onSet={(p) => setTerms((s) => s.map((x) => x.id === t.id ? { ...x, ...p } : x))} /></div></td>
+          <td style={{ ...td, width: 34 }}>{can.manage && <button onClick={() => { setTerms((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus termin", t.term); }} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>}</td>
+        </tr>)}
+          <tr><td colSpan={2} style={{ ...td, fontWeight: 700 }}>Total bobot</td><td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{tp}%</td><td style={{ ...td, textAlign: "right", fontWeight: 700, color: C.blue }}>{rp(terms.reduce((a, t) => a + (t.percent / 100) * fee, 0))}</td><td style={td} colSpan={3}></td></tr>
+        </tbody></table></div>
+      {can.manage && <Btn kind="ghost" size="sm" onClick={() => { setTerms((s) => [...s, { id: uid(), term: "T" + (s.length + 1), desc: "Tahap baru", percent: 0, date: PROJECT.statusDate, proofUrl: null, proofName: null }]); log && log("Tambah termin", "Konsultan"); }} style={{ marginTop: 12 }}><Ic name="plus" size={14} /> Tambah termin</Btn>}
+      {tp !== 100 && <div style={{ fontSize: 12, color: C.amber, marginTop: 8 }}>Catatan: total bobot termin = {tp}% (belum 100%).</div>}
+    </Card>
+
+    <CostTable title="Biaya Transisi" icon="truck" color={C.orange} rows={trans} setRows={setTrans} log={log} can={can} tag="Transisi" addLabel="Tambah biaya transisi" />
+  </div>;
+}
+
+/* ===== ARSIP DOKUMEN ===== */
+const CATS = ["Kontrak", "Desain", "RAB", "Izin", "BAST", "Invoice", "Laporan", "Lainnya"];
+function Arsip({ docs, setDocs, log }) {
+  const [pending, setPending] = useState(null);
+  const [cat, setCat] = useState("Kontrak");
+  const [err, setErr] = useState("");
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const pick = (e) => {
+    const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
+    setErr("");
+    if (file.type !== "application/pdf") { setErr("Hanya file PDF yang didukung."); return; }
+    if (file.size > 10 * 1048576) { setErr(`Ukuran ${mb(file.size)} melebihi batas 10 MB.`); return; }
+    setPending({ file, name: file.name.replace(/\.pdf$/i, "") });
+  };
+  const commit = async () => {
+    if (!pending || busy) return;
+    setBusy(true);
+    try {
+      const url = await uploadFile(pending.file, "docs");
+      const nm = pending.name.trim() || pending.file.name;
+      setDocs((s) => [{ id: uid(), name: nm, file: pending.file.name, category: cat, size: pending.file.size, date: PROJECT.statusDate, url }, ...s]);
+      log && log("Unggah dokumen", `${nm} (${cat})`);
+      setPending(null);
+    } catch (e) { setErr("Gagal mengunggah: " + (e.message || "")); }
+    setBusy(false);
+  };
+  const remove = (d) => { if (d.url && d.url.indexOf("blob:") === 0) { try { URL.revokeObjectURL(d.url); } catch (x) {} } setDocs((s) => s.filter((x) => x.id !== d.id)); log && log("Hapus dokumen", d.name); };
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "10px 8px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap" };
+  const td = { padding: "10px 8px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink };
+  return <div className="g1">
+    <Card>
+      <CardHead icon="upload" title="Unggah Dokumen" />
+      {!pending ? (
+        <div className="rowwrap">
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 15px", background: C.blue, color: "#fff", borderRadius: 10, fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>
+            <Ic name="upload" size={16} /> Pilih file PDF
+            <input type="file" accept="application/pdf" onChange={pick} style={{ display: "none" }} />
+          </label>
+          <span style={{ fontSize: 12, color: C.slate }}>Format PDF · maksimal 10 MB</span>
+        </div>
+      ) : (
+        <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12.5, color: C.slate }}><span style={{ color: C.red }}><Ic name="file" size={16} /></span> {pending.file.name} · {mb(pending.file.size)}</div>
+          <div className="g2">
+            <Field label="Nama Dokumen"><Input value={pending.name} onChange={(e) => setPending((p) => ({ ...p, name: e.target.value }))} placeholder="mis. Kontrak Konsultan MRT" /></Field>
+            <Field label="Kategori"><Sel value={cat} onChange={(e) => setCat(e.target.value)}>{CATS.map((c) => <option key={c}>{c}</option>)}</Sel></Field>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}><Btn kind="ghost" size="sm" onClick={() => setPending(null)}>Batal</Btn><Btn size="sm" onClick={commit} disabled={busy} style={{ opacity: busy ? .7 : 1 }}><Ic name="check" size={14} /> {busy ? "Mengunggah…" : "Unggah"}</Btn></div>
+        </div>
+      )}
+      {err && <div style={{ marginTop: 12, padding: "10px 12px", background: "#FDECEF", color: C.red, borderRadius: 10, fontSize: 12.5, fontWeight: 600 }}>{err}</div>}
+    </Card>
+    <Card>
+      <CardHead icon="folder" title="Arsip Dokumen" right={<span style={{ fontSize: 12.5, color: C.slate }}>{docs.length} berkas</span>} />
+      <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
+        <thead><tr><th style={th}>Nama Dokumen</th><th style={th}>Kategori</th><th style={{ ...th, textAlign: "right" }}>Ukuran</th><th style={th}>Tanggal</th><th style={{ ...th, textAlign: "right" }}>Aksi</th></tr></thead>
+        <tbody>{docs.map((d) => <tr key={d.id}>
+          <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 9 }}><span style={{ color: C.red }}><Ic name="file" size={18} /></span><div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{d.name} {d.example && <span style={{ fontSize: 10, fontWeight: 700, color: C.amber, background: "#FCF3E2", padding: "1px 7px", borderRadius: 99 }}>contoh</span>}</div><div style={{ fontSize: 11, color: C.slate }}>{d.file}</div></div></div></td>
+          <td style={td}><Pill text={d.category} color={C.blue} bg={C.blueSoft} /></td>
+          <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.slate }}>{mb(d.size)}</td>
+          <td style={{ ...td, color: C.slate, whiteSpace: "nowrap" }}>{fmtDate(d.date)}</td>
+          <td style={td}><div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+            <button title={d.url ? "Pratinjau" : "Contoh — unggah file untuk pratinjau"} disabled={!d.url} onClick={() => d.url && setPreview(d)} style={{ ...iconBtn, color: d.url ? C.blue : "#C7D2DE", cursor: d.url ? "pointer" : "not-allowed" }}><Ic name="eye" size={16} /></button>
+            {d.url ? <a title="Unduh" href={d.url} download={d.file} target="_blank" rel="noreferrer" style={{ ...iconBtn, color: C.green, textDecoration: "none" }}><Ic name="download" size={16} /></a> : <span style={{ ...iconBtn, color: "#C7D2DE" }}><Ic name="download" size={16} /></span>}
+            <button title="Hapus" onClick={() => remove(d)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={16} /></button>
+          </div></td>
+        </tr>)}
+        {docs.length === 0 && <tr><td colSpan={5}><Empty text="Belum ada dokumen. Unggah PDF di atas." /></td></tr>}
+        </tbody></table></div>
+    </Card>
+    {preview && <Modal title={preview.name} onClose={() => setPreview(null)} width={900}>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <a href={preview.url} download={preview.file} style={{ textDecoration: "none" }}><Btn kind="green"><Ic name="download" size={15} /> Unduh</Btn></a>
+        <a href={preview.url} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}><Btn kind="ghost"><Ic name="eye" size={15} /> Tab baru</Btn></a>
+      </div>
+      <iframe title="preview" src={preview.url} style={{ width: "100%", height: "70vh", border: `1px solid ${C.line}`, borderRadius: 10 }} />
+    </Modal>}
+  </div>;
+}
+
+/* ===== PUNCHLIST ===== */
+function PunchModal({ item, stages, onSave, onClose }) {
+  const [f, setF] = useState(item || { title: "", stage: stages[0] || "", loc: "", severity: "Sedang", status: PST.open, due: PROJECT.statusDate, note: "", photo: null });
+  const [imgErr, setImgErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const onPhoto = (e) => {
+    const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
+    setImgErr("");
+    if (!file.type.startsWith("image/")) { setImgErr("Berkas harus berupa gambar."); return; }
+    if (file.size > 5 * 1048576) { setImgErr(`Ukuran ${mb(file.size)} melebihi batas 5 MB.`); return; }
+    const r = new FileReader(); r.onload = () => set("photo", r.result); r.readAsDataURL(file);
+  };
+  const save = async () => {
+    if (!f.title.trim() || busy) return;
+    setBusy(true);
+    try { const photo = await uploadDataUrl(f.photo, "punch"); onSave({ ...f, photo }); }
+    catch (e) { setImgErr("Gagal mengunggah foto: " + (e.message || "")); setBusy(false); }
+  };
+  return <Modal title={item ? "Edit Temuan" : "Tambah Temuan"} onClose={onClose} width={520}>
+    <Field label="Judul temuan"><Input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="mis. Dinding partisi tidak siku" /></Field>
+    <div className="g2" style={{ marginTop: 12 }}>
+      <Field label="Tahap / Aktivitas"><Sel value={f.stage} onChange={(e) => set("stage", e.target.value)}>{stages.map((n) => <option key={n}>{n}</option>)}</Sel></Field>
+      <Field label="Lokasi"><Input value={f.loc || ""} onChange={(e) => set("loc", e.target.value)} placeholder="mis. Koridor utara Lt.21" /></Field>
+    </div>
+    <div className="g3" style={{ marginTop: 12, gap: 12 }}>
+      <Field label="Severity"><Sel value={f.severity} onChange={(e) => set("severity", e.target.value)}>{SEV.map((s) => <option key={s}>{s}</option>)}</Sel></Field>
+      <Field label="Status"><Sel value={f.status} onChange={(e) => set("status", e.target.value)}>{[PST.open, PST.prog, PST.done].map((s) => <option key={s}>{s}</option>)}</Sel></Field>
+      <Field label="Due"><Input type="date" value={f.due} onChange={(e) => set("due", e.target.value)} /></Field>
+    </div>
+    <div style={{ marginTop: 12 }}><Field label="Foto temuan (opsional)">
+      <div className="rowwrap">
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 13px", background: C.blueSoft, color: C.blue, borderRadius: 10, fontWeight: 600, fontSize: 12.5, cursor: "pointer", border: `1px solid ${C.line}` }}>
+          <Ic name="camera" size={15} /> {f.photo ? "Ganti foto" : "Unggah foto"}
+          <input type="file" accept="image/*" onChange={onPhoto} style={{ display: "none" }} />
+        </label>
+        {f.photo && <div style={{ position: "relative" }}>
+          <img src={f.photo} alt="foto" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.line}` }} />
+          <button onClick={() => set("photo", null)} title="Hapus foto" style={{ position: "absolute", top: -8, right: -8, width: 22, height: 22, borderRadius: 99, border: "none", background: C.red, color: "#fff", cursor: "pointer", display: "grid", placeItems: "center" }}><Ic name="x" size={12} /></button>
+        </div>}
+      </div>
+      {imgErr && <div style={{ color: C.red, fontSize: 12, marginTop: 6 }}>{imgErr}</div>}
+    </Field></div>
+    <div style={{ marginTop: 12 }}><Field label="Keterangan / Catatan"><Area value={f.note} onChange={(e) => set("note", e.target.value)} placeholder="Detail temuan / tindakan" /></Field></div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save} disabled={busy} style={{ opacity: busy ? .7 : 1 }}>{busy ? "Menyimpan…" : (item ? "Simpan" : "Tambah")}</Btn></div>
+  </Modal>;
+}
+function PunchReportModal({ stages, defaultStage, onClose, onMake }) {
+  const [stage, setStage] = useState(defaultStage || "");
+  const [loc, setLoc] = useState("");
+  return <Modal title="Buat Laporan Punchlist (PDF)" onClose={onClose} width={480}>
+    <Field label="Tahapan (pekerjaan konstruksi)">
+      <Sel value={stage} onChange={(e) => setStage(e.target.value)}><option value="">Semua tahap</option>{stages.map((n) => <option key={n}>{n}</option>)}</Sel>
+    </Field>
+    <div style={{ marginTop: 12 }}><Field label="Lokasi pekerjaan"><Input value={loc} onChange={(e) => setLoc(e.target.value)} placeholder="mis. Gedung MRT Jakarta, Lantai 20–22" /></Field></div>
+    <div style={{ marginTop: 12, fontSize: 12.5, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
+      Tanggal cetak otomatis: <b style={{ color: C.ink }}>{tglPanjang()}</b>
+    </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+      <Btn kind="ghost" onClick={onClose}>Batal</Btn>
+      <Btn onClick={() => onMake({ stage, loc })}><Ic name="file" size={15} /> Buat Laporan</Btn>
+    </div>
+  </Modal>;
+}
+function PunchReport({ punch, stage, loc, onClose }) {
+  const rows = punch.filter((p) => !stage || p.stage === stage);
+  const tdC = { border: "1px solid #9AA7B4", padding: "7px 8px", fontSize: 11.5, color: "#1F2D3D", verticalAlign: "top" };
+  const thC = { border: "1px solid #9AA7B4", padding: "7px 8px", fontSize: 11, fontWeight: 700, color: "#13293D", background: "#EEF3F8", textAlign: "center" };
+  const info = (l, v) => <tr><td style={{ padding: "2px 0", fontSize: 12, color: "#6B7A8D", width: 130, verticalAlign: "top" }}>{l}</td><td style={{ padding: "2px 6px", fontSize: 12, color: "#6B7A8D", verticalAlign: "top" }}>:</td><td style={{ padding: "2px 0", fontSize: 12.5, fontWeight: 600, color: "#13293D" }}>{v}</td></tr>;
+  const signCol = (line1, role) => <div className="sign-block" style={{ flex: 1, textAlign: "center", fontSize: 12.5, color: "#13293D" }}>
+    <div>{line1}</div><div style={{ height: 74 }} />
+    <div style={{ borderTop: "1px solid #13293D", width: "78%", margin: "0 auto", paddingTop: 6, fontWeight: 700 }}>(&nbsp;.................................&nbsp;)</div>
+    <div style={{ fontWeight: 700, marginTop: 3 }}>{role}</div>
+  </div>;
+  return <div className="print-doc" style={{ position: "fixed", inset: 0, background: "#E2E8EF", zIndex: 130, overflow: "auto", padding: "22px 14px" }}>
+    <div className="no-print" style={{ maxWidth: 820, margin: "0 auto 14px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ fontSize: 13, color: "#3a4858", fontWeight: 600 }}>Pratinjau laporan — klik <b>Cetak / Simpan PDF</b>, lalu pilih “Save as PDF”.</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn kind="ghost" onClick={onClose}><Ic name="x" size={15} /> Tutup</Btn>
+        <Btn kind="green" onClick={() => window.print()}><Ic name="download" size={15} /> Cetak / Simpan PDF</Btn>
+      </div>
+    </div>
+    <div className="print-paper" style={{ maxWidth: 820, margin: "0 auto", background: "#fff", borderRadius: 4, boxShadow: "0 10px 30px rgba(19,41,61,.18)", padding: "34px 38px", color: "#13293D" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, borderBottom: "2px solid #13293D", paddingBottom: 12 }}>
+        <Logo size={44} radius={9} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: .2 }}>LAPORAN PUNCHLIST</div>
+          <div style={{ fontSize: 12.5, color: "#6B7A8D" }}>{PROJECT.name} · {PROJECT.sub}</div>
+        </div>
+      </div>
+      <table style={{ marginTop: 14, borderCollapse: "collapse" }}><tbody>
+        {info("Tahapan", stage || "Semua tahap")}
+        {info("Lokasi Pekerjaan", loc || "-")}
+        {info("Tanggal Cetak", tglPanjang())}
+        {info("Jumlah Temuan", `${rows.length} temuan`)}
+      </tbody></table>
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
+        <thead><tr>
+          <th style={{ ...thC, width: 34 }}>No.</th><th style={{ ...thC, width: "26%" }}>Nama Temuan</th>
+          <th style={{ ...thC, width: "18%" }}>Lokasi</th><th style={{ ...thC, width: 108 }}>Gambar</th><th style={thC}>Keterangan</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((p, i) => <tr key={p.id}>
+            <td style={{ ...tdC, textAlign: "center" }}>{i + 1}</td>
+            <td style={tdC}><div style={{ fontWeight: 700 }}>{p.title}</div><div style={{ fontSize: 10.5, color: "#6B7A8D", marginTop: 2 }}>{p.stage} · {p.severity} · {p.status}</div></td>
+            <td style={tdC}>{p.loc || "-"}</td>
+            <td style={{ ...tdC, textAlign: "center" }}>{p.photo ? <img src={p.photo} alt="" style={{ width: 96, height: 72, objectFit: "cover", border: "1px solid #9AA7B4" }} /> : <span style={{ fontSize: 10.5, color: "#6B7A8D" }}>tidak ada</span>}</td>
+            <td style={tdC}>{p.note || "-"}<div style={{ fontSize: 10.5, color: "#6B7A8D", marginTop: 3 }}>Target: {fmtDate(p.due)}</div></td>
+          </tr>)}
+          {rows.length === 0 && <tr><td colSpan={5} style={{ ...tdC, textAlign: "center", color: "#6B7A8D" }}>Tidak ada temuan pada tahapan ini.</td></tr>}
+        </tbody>
+      </table>
+      <div className="sign-block" style={{ marginTop: 26 }}>
+        <div style={{ textAlign: "right", fontSize: 12.5, marginBottom: 12 }}>Jakarta, {tglPanjang()}</div>
+        <div style={{ display: "flex", gap: 24 }}>
+          {signCol("Disiapkan oleh,", "Departemen General Affairs")}
+          {signCol("Mengetahui,", "Pihak Kontraktor")}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+function Punchlist({ punch, setPunch, tasks, can, log }) {
+  const [modal, setModal] = useState(null);
+  const [reportCfg, setReportCfg] = useState(false);
+  const [report, setReport] = useState(null);
+  const [fStage, setFStage] = useState("");
+  const [fStatus, setFStatus] = useState("");
+  const save = (data) => {
+    if (data.id) { setPunch((s) => s.map((p) => p.id === data.id ? data : p)); log && log("Edit temuan", data.title); }
+    else { setPunch((s) => [{ ...data, id: uid() }, ...s]); log && log("Tambah temuan", data.title); }
+    setModal(null);
+  };
+  const setStatus = (id, st) => { setPunch((s) => s.map((p) => p.id === id ? { ...p, status: st } : p)); const it = punch.find((p) => p.id === id); log && log("Ubah status temuan", `${it ? it.title : id} → ${st}`); };
+  const list = punch.filter((p) => (!fStage || p.stage === fStage) && (!fStatus || p.status === fStatus));
+  const byStage = {};
+  punch.forEach((p) => { (byStage[p.stage] = byStage[p.stage] || []).push(p); });
+  const stageRows = Object.keys(byStage).map((st) => { const it = byStage[st]; const done = it.filter((x) => x.status === PST.done).length; return { stage: st, total: it.length, open: it.filter((x) => x.status === PST.open).length, prog: it.filter((x) => x.status === PST.prog).length, done }; });
+  const cnt = { open: punch.filter((p) => p.status === PST.open).length, prog: punch.filter((p) => p.status === PST.prog).length, done: punch.filter((p) => p.status === PST.done).length };
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "10px 8px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap" };
+  const td = { padding: "9px 8px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink, verticalAlign: "top" };
+  const allStages = Array.from(new Set([...tasks.map((t) => t.name), ...punch.map((p) => p.stage)]));
+  return <div className="g1">
+    <div className="g4">
+      <Stat label="Total Temuan" value={punch.length} icon="clipboard" color={C.ink} />
+      <Stat label="Terbuka" value={cnt.open} icon="alert" color={C.red} />
+      <Stat label="Proses" value={cnt.prog} icon="trending" color={C.amber} />
+      <Stat label="Selesai" value={cnt.done} icon="check" color={C.green} />
+    </div>
+    <Card>
+      <CardHead icon="clipboard" title="Monitor Punchlist per Tahap" right={
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn kind="ghost" onClick={() => setReportCfg(true)}><Ic name="file" size={16} /> Simpan PDF</Btn>
+          {can.manage && <Btn onClick={() => setModal({})}><Ic name="plus" size={16} /> Tambah Temuan</Btn>}
+        </div>} />
+      {stageRows.length === 0 ? <Empty text="Belum ada temuan." /> :
+        <div style={{ display: "grid", gap: 10 }}>{stageRows.map((r) => { const pct = r.total ? Math.round(r.done / r.total * 100) : 0; return (
+          <div key={r.stage} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "1 1 220px", minWidth: 0 }}><div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.stage}</div>
+              <div style={{ marginTop: 6, height: 6, background: C.bg, borderRadius: 99, overflow: "hidden", maxWidth: 320 }}><div style={{ width: `${pct}%`, height: "100%", background: C.green }} /></div></div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><Pill text={`${r.open} Terbuka`} color={C.red} bg="#FDECEF" /><Pill text={`${r.prog} Proses`} color={C.amber} bg="#FCF3E2" /><Pill text={`${r.done}/${r.total} Selesai`} color={C.green} bg={C.greenSoft} /></div>
+          </div>); })}</div>}
+    </Card>
+    <Card>
+      <CardHead icon="alert" title="Daftar Temuan" color={C.amber} right={
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Sel value={fStage} onChange={(e) => setFStage(e.target.value)} style={{ width: 190, padding: "7px 10px" }}><option value="">Semua tahap</option>{allStages.map((n) => <option key={n}>{n}</option>)}</Sel>
+          <Sel value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ width: 135, padding: "7px 10px" }}><option value="">Semua status</option>{[PST.open, PST.prog, PST.done].map((s) => <option key={s}>{s}</option>)}</Sel>
+        </div>} />
+      <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+        <thead><tr><th style={th}>Temuan</th><th style={th}>Tahap</th><th style={th}>Severity</th><th style={{ ...th, width: 150 }}>Status</th><th style={th}>Due</th><th style={{ ...th, width: 60 }}></th></tr></thead>
+        <tbody>{list.map((p) => <tr key={p.id}>
+          <td style={td}><div style={{ display: "flex", gap: 10 }}>{p.photo && <img src={p.photo} alt="" style={{ width: 42, height: 42, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.line}`, flexShrink: 0 }} />}<div><div style={{ fontWeight: 600 }}>{p.title}</div>{p.loc && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>Lokasi: {p.loc}</div>}{p.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>{p.note}</div>}</div></div></td>
+          <td style={{ ...td, fontSize: 12.5, color: C.slate }}>{p.stage}</td>
+          <td style={td}><Pill text={p.severity} color={SEVC[p.severity]} bg={SEVC[p.severity] + "1A"} /></td>
+          <td style={td}><Sel value={p.status} disabled={!can.manage} onChange={(e) => setStatus(p.id, e.target.value)} style={{ padding: "5px 8px", fontSize: 12.5, color: PMETA[p.status].color, fontWeight: 700, background: PMETA[p.status].bg, border: `1px solid ${C.line}` }}>{[PST.open, PST.prog, PST.done].map((s) => <option key={s} style={{ color: C.ink, background: "#fff" }}>{s}</option>)}</Sel></td>
+          <td style={{ ...td, fontVariantNumeric: "tabular-nums", color: C.slate, whiteSpace: "nowrap" }}>{fmtDate(p.due)}</td>
+          <td style={td}>{can.manage && <div style={{ display: "flex", gap: 2 }}><button onClick={() => setModal({ item: p })} style={iconBtn}><Ic name="pencil" size={14} /></button><button onClick={() => { setPunch((s) => s.filter((x) => x.id !== p.id)); log && log("Hapus temuan", p.title); }} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button></div>}</td>
+        </tr>)}
+        {list.length === 0 && <tr><td colSpan={6}><Empty text="Tidak ada temuan untuk filter ini." /></td></tr>}
+        </tbody></table></div>
+    </Card>
+    {modal && can.manage && <PunchModal item={modal.item} stages={allStages} onSave={save} onClose={() => setModal(null)} />}
+    {reportCfg && <PunchReportModal stages={allStages} defaultStage={fStage} onClose={() => setReportCfg(false)} onMake={(cfg) => { setReport(cfg); setReportCfg(false); log && log("Cetak laporan punchlist", cfg.stage || "Semua tahap"); }} />}
+    {report && <PunchReport punch={punch} stage={report.stage} loc={report.loc} onClose={() => setReport(null)} />}
+  </div>;
+}
+
+/* ===== TUGAS SAYA (checklist ala OneNote) ===== */
+function MyTasks({ mytasks, setMytasks, user, log }) {
+  const [text, setText] = useState("");
+  const mine = mytasks.filter((t) => (t.owner || "").toLowerCase() === (user.email || "").toLowerCase());
+  const add = () => {
+    const v = text.trim(); if (!v) return;
+    setMytasks((s) => [{ id: uid(), owner: (user.email || "").toLowerCase(), text: v, done: false }, ...s]);
+    log && log("Tambah tugas pribadi", v); setText("");
+  };
+  const toggle = (t) => { setMytasks((s) => s.map((x) => x.id === t.id ? { ...x, done: !x.done } : x)); log && log(t.done ? "Buka kembali tugas" : "Selesaikan tugas", t.text); };
+  const del = (t) => { setMytasks((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus tugas pribadi", t.text); };
+  const edit = (t, v) => setMytasks((s) => s.map((x) => x.id === t.id ? { ...x, text: v } : x));
+  const done = mine.filter((t) => t.done).length;
+  const pct = mine.length ? Math.round(done / mine.length * 100) : 0;
+  return <div className="g1">
+    <div className="g3">
+      <Stat label="Total Tugas" value={mine.length} icon="tasks" color={C.ink} />
+      <Stat label="Selesai" value={done} sub={`${pct}% tuntas`} icon="check" color={C.green} />
+      <Stat label="Belum Selesai" value={mine.length - done} icon="alert" color={C.amber} />
+    </div>
+    <Card>
+      <CardHead icon="tasks" title={`Tugas Saya — ${user.name}`} right={<span style={{ fontSize: 12.5, color: C.slate }}>{user.email}</span>} />
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <Input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} placeholder="Tulis tugas baru, tekan Enter…" style={{ flex: "1 1 240px" }} />
+        <Btn onClick={add}><Ic name="plus" size={16} /> Tambah</Btn>
+      </div>
+      {mine.length > 0 && <div style={{ height: 6, background: C.bg, borderRadius: 99, overflow: "hidden", marginBottom: 14 }}><div style={{ width: `${pct}%`, height: "100%", background: C.green, transition: ".2s" }} /></div>}
+      <div style={{ display: "grid", gap: 6 }}>
+        {mine.map((t) => <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", border: `1px solid ${C.line}`, borderRadius: 11, background: t.done ? C.bg : "#fff" }}>
+          <button onClick={() => toggle(t)} title={t.done ? "Tandai belum selesai" : "Tandai selesai"}
+            style={{ width: 21, height: 21, borderRadius: 6, border: `2px solid ${t.done ? C.green : "#C7D2DE"}`, background: t.done ? C.green : "#fff", color: "#fff", cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, padding: 0 }}>
+            {t.done && <Ic name="check" size={12} />}
+          </button>
+          <input value={t.text} onChange={(e) => edit(t, e.target.value)}
+            style={{ flex: 1, minWidth: 0, border: "1px solid transparent", background: "transparent", fontSize: 13.5, fontFamily: "inherit", color: t.done ? C.slate : C.ink, textDecoration: t.done ? "line-through" : "none", padding: "4px 6px", borderRadius: 8, outline: "none" }}
+            onFocus={(e) => { e.target.style.border = `1px solid ${C.blue}`; e.target.style.background = "#fff"; }}
+            onBlur={(e) => { e.target.style.border = "1px solid transparent"; e.target.style.background = "transparent"; }} />
+          <button onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>
+        </div>)}
+        {mine.length === 0 && <Empty text="Belum ada tugas. Tambahkan di kotak atas — centang untuk mencoret bila selesai." />}
+      </div>
+    </Card>
+  </div>;
+}
+
+/* ===== MANAJEMEN USER (khusus Project Management) ===== */
+function UserModal({ item, onSave, onClose }) {
+  const [f, setF] = useState(item || { name: "", email: "", role: ROLE.admin, active: true });
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const save = () => { if (!f.name.trim() || !f.email.trim()) return; onSave({ ...f, email: f.email.trim().toLowerCase() }); };
+  return <Modal title={item ? "Edit User" : "Tambah User"} onClose={onClose} width={470}>
+    <Field label="Nama"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Email (harus sama dengan akun Supabase)"><Input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="nama@perusahaan.com" /></Field></div>
+    <div className="g2" style={{ marginTop: 12 }}>
+      <Field label="Role"><Sel value={f.role} onChange={(e) => set("role", e.target.value)}>{[ROLE.pm, ROLE.admin].map((r) => <option key={r}>{r}</option>)}</Sel></Field>
+      <Field label="Status"><Sel value={f.active ? "Aktif" : "Nonaktif"} onChange={(e) => set("active", e.target.value === "Aktif")}><option>Aktif</option><option>Nonaktif</option></Sel></Field>
+    </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save}>{item ? "Simpan" : "Tambah"}</Btn></div>
+  </Modal>;
+}
+function UsersPage({ users, setUsers, mytasks, me, log }) {
+  const [modal, setModal] = useState(null);
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "10px 8px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap" };
+  const td = { padding: "10px 8px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink };
+  const save = (data) => {
+    if (data.id) { setUsers((s) => s.map((u) => u.id === data.id ? data : u)); log && log("Edit user", `${data.name} (${data.role})`); }
+    else { setUsers((s) => [...s, { ...data, id: uid() }]); log && log("Tambah user", `${data.name} (${data.role})`); }
+    setModal(null);
+  };
+  const del = (u) => { if (u.email === me.email) return; setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Hapus user", u.name); };
+  const taskCount = (email) => mytasks.filter((t) => (t.owner || "").toLowerCase() === (email || "").toLowerCase());
+  return <div className="g1">
+    <div className="g3">
+      <Stat label="Total User" value={users.length} icon="users" color={C.ink} />
+      <Stat label="Project Management" value={users.filter((u) => u.role === ROLE.pm).length} icon="compass" color={C.blue} />
+      <Stat label="Admin" value={users.filter((u) => u.role === ROLE.admin).length} icon="check" color={C.green} />
+    </div>
+    <Card>
+      <CardHead icon="users" title="Manajemen User" right={<Btn onClick={() => setModal({})}><Ic name="plus" size={16} /> Tambah User</Btn>} />
+      <div style={{ fontSize: 12.5, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
+        Halaman ini mengatur <b>role & akses</b>. Untuk mode live, akun login (email + password) tetap dibuat di Supabase → Authentication → Users, lalu daftarkan email yang sama di sini.
+      </div>
+      <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+        <thead><tr><th style={th}>Nama</th><th style={th}>Email</th><th style={th}>Role</th><th style={th}>Status</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 70 }}></th></tr></thead>
+        <tbody>{users.map((u) => { const tc = taskCount(u.email); return <tr key={u.id}>
+          <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 9 }}><div style={{ width: 30, height: 30, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 12.5, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{u.email === me.email && <div style={{ fontSize: 10.5, color: C.slate }}>akun Anda</div>}</div></div></td>
+          <td style={{ ...td, color: C.slate }}>{u.email}</td>
+          <td style={td}><Pill text={u.role} color={u.role === ROLE.pm ? C.blue : C.green} bg={u.role === ROLE.pm ? C.blueSoft : C.greenSoft} /></td>
+          <td style={td}><Pill text={u.active ? "Aktif" : "Nonaktif"} color={u.active ? C.green : C.slate} bg={u.active ? C.greenSoft : "#EEF3F8"} /></td>
+          <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.slate }}>{tc.filter((t) => t.done).length}/{tc.length}</td>
+          <td style={td}><div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+            <button onClick={() => setModal({ item: u })} style={iconBtn}><Ic name="pencil" size={14} /></button>
+            <button onClick={() => del(u)} disabled={u.email === me.email} title={u.email === me.email ? "Tidak bisa menghapus akun sendiri" : "Hapus"} style={{ ...iconBtn, color: u.email === me.email ? "#C7D2DE" : C.red, cursor: u.email === me.email ? "not-allowed" : "pointer" }}><Ic name="trash" size={14} /></button>
+          </div></td>
+        </tr>; })}
+        {users.length === 0 && <tr><td colSpan={6}><Empty text="Belum ada user." /></td></tr>}
+        </tbody></table></div>
+    </Card>
+    {modal && <UserModal item={modal.item} onSave={save} onClose={() => setModal(null)} />}
+  </div>;
+}
+
+/* ===== LOG AKTIVITAS ===== */
+const PAGE_SIZES = [["20", 20], ["50", 50], ["100", 100], ["Semua", 0]];
+function Logs({ logs }) {
+  const [size, setSize] = useState(20);
+  const [page, setPage] = useState(1);
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return logs;
+    return logs.filter((l) => [l.actor, l.action, l.detail].join(" ").toLowerCase().includes(s));
+  }, [logs, q]);
+  const per = size === 0 ? filtered.length || 1 : size;
+  const pages = Math.max(1, Math.ceil(filtered.length / per));
+  const cur = Math.min(page, pages);
+  const slice = size === 0 ? filtered : filtered.slice((cur - 1) * per, cur * per);
+  useEffect(() => { setPage(1); }, [size, q]);
+  const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "10px 10px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, background: "#fff", position: "sticky", top: 0, zIndex: 1, whiteSpace: "nowrap" };
+  const td = { padding: "9px 10px", borderBottom: `1px solid ${C.line}`, fontSize: 12.8, color: C.ink, verticalAlign: "top" };
+  return <div className="g1">
+    <Card>
+      <CardHead icon="history" title="Log Aktivitas" color={C.slate} right={
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari aktivitas…" style={{ width: 190, padding: "7px 10px" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 12, color: C.slate, whiteSpace: "nowrap" }}>Tampilkan</span>
+            <Sel value={String(size)} onChange={(e) => setSize(Number(e.target.value))} style={{ width: 104, padding: "7px 10px" }}>
+              {PAGE_SIZES.map(([lb, v]) => <option key={lb} value={String(v)}>{lb}</option>)}
+            </Sel>
+          </div>
+        </div>} />
+      {/* Tinggi tabel TETAP (scrollable) walau opsi "Semua" dipilih */}
+      <div style={{ height: 430, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 12, background: "#fff" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 660 }}>
+          <thead><tr><th style={{ ...th, width: 150 }}>Waktu</th><th style={{ ...th, width: 190 }}>Pengguna</th><th style={{ ...th, width: 210 }}>Aksi</th><th style={th}>Detail</th></tr></thead>
+          <tbody>
+            {slice.map((l) => <tr key={l.id}>
+              <td style={{ ...td, color: C.slate, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtStamp(l.ts)}</td>
+              <td style={{ ...td, fontWeight: 600 }}>{l.actor}</td>
+              <td style={td}><Pill text={l.action} color={C.blue} bg={C.blueSoft} /></td>
+              <td style={{ ...td, color: C.slate }}>{l.detail || "-"}</td>
+            </tr>)}
+            {slice.length === 0 && <tr><td colSpan={4}><Empty text="Belum ada aktivitas tercatat." /></td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12.5, color: C.slate }}>
+          {filtered.length === 0 ? "0 entri" : size === 0
+            ? `Menampilkan semua ${filtered.length} entri`
+            : `Menampilkan ${(cur - 1) * per + 1}–${Math.min(cur * per, filtered.length)} dari ${filtered.length} entri`}
+        </div>
+        {size !== 0 && <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Btn kind="ghost" size="sm" onClick={() => setPage(1)} disabled={cur === 1} style={{ opacity: cur === 1 ? .45 : 1 }}>«</Btn>
+          <Btn kind="ghost" size="sm" onClick={() => setPage(cur - 1)} disabled={cur === 1} style={{ opacity: cur === 1 ? .45 : 1 }}><Ic name="chevL" size={13} /></Btn>
+          <span style={{ fontSize: 12.5, color: C.ink, fontWeight: 600, padding: "0 6px" }}>Hal. {cur} / {pages}</span>
+          <Btn kind="ghost" size="sm" onClick={() => setPage(cur + 1)} disabled={cur === pages} style={{ opacity: cur === pages ? .45 : 1 }}><Ic name="chevR" size={13} /></Btn>
+          <Btn kind="ghost" size="sm" onClick={() => setPage(pages)} disabled={cur === pages} style={{ opacity: cur === pages ? .45 : 1 }}>»</Btn>
+        </div>}
+      </div>
+    </Card>
+  </div>;
+}
+
+/* ===== STAT ===== */
+function Stat({ label, value, sub, color = C.ink, icon }) {
+  return <Card style={{ padding: 16 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}><div style={{ fontSize: 12, fontWeight: 600, color: C.slate }}>{label}</div>{icon && <span style={{ color, opacity: .85 }}><Ic name={icon} size={18} /></span>}</div>
+    <div style={{ fontSize: 23, fontWeight: 800, color, marginTop: 8, fontVariantNumeric: "tabular-nums", letterSpacing: -.5, overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div>
+    {sub && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 3 }}>{sub}</div>}
+  </Card>;
+}
+
+/* ===== HALAMAN KEGIATAN (Gantt + Kanban) ===== */
+function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporting }) {
+  const [tab, setTab] = useState("gantt");
+  const [modal, setModal] = useState(null);
+  const [view, setView] = useState(null);
+  const [note, setNote] = useState(null);
+  const A2 = actOf(act);
+  const updTask = (id, patch) => setTasks((s) => s.map((t) => { if (t.id !== id) return t; const n = { ...t, ...patch }; if ("percent" in patch && n.status !== STATUS.cancel) n.status = stOf(n.percent); return n; }));
+  const saveTask = (data) => {
+    if (data.id) { setTasks((s) => s.map((t) => t.id === data.id ? { ...t, ...data } : t)); log && log("Edit pekerjaan", `${A2.label}: ${data.name}`); }
+    else { setTasks((s) => [...s, { ...data, id: uid(), note: data.note || "", assignees: data.assignees || [] }]); log && log("Tambah pekerjaan", `${A2.label}: ${data.name}`); }
+    setModal(null);
+  };
+  const delTask = (id) => {
+    const t = tasks.find((x) => x.id === id);
+    setTasks((s) => s.filter((x) => x.id !== id && x.parent !== id));
+    log && log("Hapus pekerjaan", `${A2.label}: ${t ? t.name : id}`);
+  };
+  const moveKanban = (id, col) => {
+    setTasks((s) => s.map((t) => {
+      if (t.id !== id) return t;
+      let pct = t.percent;
+      if (col === STATUS.done) pct = 100; else if (col === STATUS.todo) pct = 0;
+      else if (col === STATUS.doing && (pct === 0 || pct === 100)) pct = 50;
+      return { ...t, status: col, percent: pct };
+    }));
+    const t = tasks.find((x) => x.id === id); log && log("Ubah status Kanban", `${t ? t.name : id} → ${col}`);
+  };
+  const saveNote = (patch) => {
+    setTasks((s) => s.map((t) => t.id === note.id ? { ...t, ...patch } : t));
+    log && log("Catatan & penugasan", `${note.name} · ${(patch.assignees || []).length} orang`);
+    setNote(null);
+  };
+  const list = tasks.filter((t) => t.act === act);
+  const leaves = list.filter((t) => !list.some((x) => x.parent === t.id));
+  const counts = {}; KCOLS.forEach((k) => (counts[k] = 0));
+  leaves.forEach((t) => (counts[t.status] = (counts[t.status] || 0) + 1));
+  const pct = progressOf(tasks, act);
+  const TabBtn = ({ id, icon, label }) => <button onClick={() => setTab(id)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, border: `1px solid ${tab === id ? A2.color : C.line}`, background: tab === id ? A2.soft : "#fff", color: tab === id ? A2.color : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer" }}><Ic name={icon} size={15} /> {label}</button>;
+  return <div className="g1">
+    <div className="g4">
+      <Stat label="Progres Kegiatan" value={pct + "%"} sub={`${list.filter((t) => !t.parent).length} pekerjaan · ${leaves.length} item`} icon="trending" color={A2.color} />
+      <Stat label={STATUS.doing} value={counts[STATUS.doing]} icon="kanban" color={C.blue} />
+      <Stat label={STATUS.done} value={counts[STATUS.done]} icon="check" color={C.green} />
+      <Stat label={STATUS.cancel} value={counts[STATUS.cancel]} icon="x" color={C.red} />
+    </div>
+    <Card>
+      <CardHead icon={A2.icon} color={A2.color} title={`Kegiatan ${A2.label}`} right={
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {tab === "gantt" && <Btn kind="ghost" onClick={onExport} disabled={exporting}><Ic name="download" size={16} /> {exporting ? "Menyiapkan…" : "Unduh PNG"}</Btn>}
+          {can.manage && <Btn onClick={() => setModal({ task: null })}><Ic name="plus" size={16} /> Tambah Pekerjaan</Btn>}
+        </div>} />
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <TabBtn id="gantt" icon="calendar" label="Gantt Chart" />
+        <TabBtn id="kanban" icon="kanban" label="Kanban" />
+      </div>
+      <div style={{ fontSize: 12.5, color: C.slate, marginBottom: 12 }}>
+        {tab === "gantt"
+          ? (can.manage
+            ? "Sumbu waktu: bulan + minggu ke- dalam tahun (arahkan kursor ke nomor minggu untuk melihat tanggalnya). Seret bar sub pekerjaan untuk menggeser jadwal, tarik ujung kanan untuk mengubah durasi. Bar pekerjaan utama dihitung otomatis dari sub pekerjaannya."
+            : "Sumbu waktu: bulan + minggu ke- dalam tahun (arahkan kursor ke nomor minggu untuk melihat tanggalnya). Role Admin hanya dapat melihat jadwal.")
+          : (can.manage
+            ? "Seret kartu antar kolom untuk mengubah status. Ikon mata = detail, ikon pensil = catatan & penugasan."
+            : "Seret kartu antar kolom untuk mengubah status (diizinkan untuk Admin). Ikon mata untuk melihat detail dan catatan.")}
+      </div>
+      {tab === "gantt"
+        ? <Gantt tasks={tasks} act={act} statusDate={PROJECT.statusDate} editable={can.manage} onChange={updTask} onEdit={(t) => setModal({ task: t })} onDelete={delTask} onAddSub={(p) => setModal({ task: { name: "", act, parent: p.id, start: p.start, finish: p.finish, percent: 0, status: STATUS.todo, note: "", assignees: [] } })} />
+        : <Kanban tasks={tasks} act={act} users={users} onMove={moveKanban} onView={setView} onNote={setNote} canMove={can.kanban} canNote={can.manage} />}
+    </Card>
+    {modal && can.manage && <TaskModal task={modal.task && modal.task.id ? modal.task : (modal.task || null)} act={act} tasks={tasks} onClose={() => setModal(null)} onSave={saveTask} />}
+    {view && <TaskViewModal task={view} tasks={tasks} users={users} onClose={() => setView(null)} />}
+    {note && can.manage && <TaskNoteModal task={note} users={users} onSave={saveNote} onClose={() => setNote(null)} />}
+  </div>;
+}
+
+/* ===== APP ===== */
+function App() {
+  const [user, setUser] = useState(null);
+  const [booting, setBooting] = useState(LIVE);
+  const [ready, setReady] = useState(!LIVE);
+  const [loadErr, setLoadErr] = useState("");
+  const [page, setPage] = useState("dashboard");
+  const [tasks, setTasks] = useState(SEED_TASKS);
+  const [rab, setRab] = useState(SEED_RAB);
+  const [trans, setTrans] = useState(SEED_TRANS);
+  const [fee, setFee] = useState(SEED_FEE);
+  const [terms, setTerms] = useState(SEED_TERMS);
+  const [docs, setDocs] = useState(SEED_DOCS);
+  const [punch, setPunch] = useState(SEED_PUNCH);
+  const [users, setUsers] = useState(SEED_USERS);
+  const [mytasks, setMytasks] = useState(SEED_MYTASKS);
+  const [logs, setLogs] = useState([]);
+  const [exportAct, setExportAct] = useState(null);
+  const ganttRef = useRef(null);
+  const scWrapRef = useRef(null);
+  const w = useWinW();
+  const isMobile = w < 900;
+  const [sidebar, setSidebar] = useState(true);
+  useEffect(() => { setSidebar(!isMobile); }, [isMobile]);
+
+  const userRef = useRef(null); userRef.current = user;
+  const log = useMemo(() => (action, detail) => {
+    const u = userRef.current;
+    setLogs((s) => [{ id: uid(), ts: nowISO(), actor: u ? (u.name || u.email) : "Sistem", action, detail: detail || "" }, ...s].slice(0, 1000));
+  }, []);
+
+  const scToday = useMemo(() => todayMarkerData(rab, fee, terms, trans), [rab, fee, terms, trans]);
+  const sc = useMemo(() => sCurve(rab, fee, terms, trans), [rab, fee, terms, trans]);
+  const cTotal = sumCost(rab), trTotal = sumCost(trans);
+  const proj = cTotal + fee + trTotal;
+  const overall = useMemo(() => progressOf(tasks, null), [tasks]);
+  const nextPay = terms.filter((t) => D(t.date) >= D(PROJECT.statusDate)).sort((a, b) => D(a.date) - D(b.date))[0];
+  const punchOpen = punch.filter((p) => p.status !== PST.done).length;
+  const myOpen = user ? mytasks.filter((t) => (t.owner || "").toLowerCase() === (user.email || "").toLowerCase() && !t.done).length : 0;
+
+  const exportSCurvePNG = () => {
+    const svg = scWrapRef.current && scWrapRef.current.querySelector("svg");
+    if (!svg || typeof XMLSerializer === "undefined") { alert("Grafik belum siap. Coba lagi."); return; }
+    const vb = svg.viewBox.baseVal;
+    const wd = vb && vb.width ? vb.width : 1080, h = vb && vb.height ? vb.height : 260;
+    const clone = svg.cloneNode(true);
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", wd); clone.setAttribute("height", h);
+    const xml = new XMLSerializer().serializeToString(clone);
+    const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2, headerH = 70, footerH = 30;
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(wd * scale); canvas.height = Math.round((h + headerH + footerH) * scale);
+      const ctx = canvas.getContext("2d"); ctx.scale(scale, scale);
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, wd, h + headerH + footerH);
+      ctx.fillStyle = C.ink; ctx.font = "700 17px Inter, Arial, sans-serif"; ctx.textBaseline = "alphabetic";
+      ctx.fillText("Kurva-S — " + PROJECT.name, 18, 28);
+      ctx.fillStyle = C.slate; ctx.font = "500 12px Inter, Arial, sans-serif";
+      ctx.fillText("Kontraktor · Konsultan · Transisi · Total — posisi per " + tglPanjang(), 18, 48);
+      ctx.drawImage(img, 0, headerH, wd, h);
+      ctx.fillStyle = C.slate; ctx.font = "500 10.5px Inter, Arial, sans-serif";
+      ctx.fillText("Hari ini: " + SERIES.map(([k]) => k + " " + scToday.vals[k] + "%").join(" · "), 18, h + headerH + 20);
+      const a = document.createElement("a"); a.href = canvas.toDataURL("image/png"); a.download = "S-Curve-MRT-Jakarta.png"; a.click();
+      log("Unduh PNG", "Kurva-S");
+    };
+    img.onerror = () => alert("Gagal membuat PNG kurva-S.");
+    img.src = src;
+  };
+
+  useEffect(() => {
+    if (!exportAct) return;
+    const t = setTimeout(() => {
+      const node = ganttRef.current;
+      if (!node || !window.html2canvas) { setExportAct(null); alert("Modul export belum siap. Coba lagi."); return; }
+      window.html2canvas(node, { backgroundColor: "#ffffff", scale: 2, logging: false }).then((canvas) => {
+        const maxW = 1500, k = Math.min(1, maxW / canvas.width);
+        const out = document.createElement("canvas"); out.width = Math.round(canvas.width * k); out.height = Math.round(canvas.height * k);
+        const ctx = out.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, out.width, out.height); ctx.imageSmoothingQuality = "high"; ctx.drawImage(canvas, 0, 0, out.width, out.height);
+        const a = document.createElement("a"); a.href = out.toDataURL("image/png"); a.download = `Gantt-${actOf(exportAct).label}.png`; a.click();
+        log("Unduh PNG", `Gantt ${actOf(exportAct).label}`);
+        setExportAct(null);
+      }).catch(() => { setExportAct(null); alert("Gagal membuat PNG."); });
+    }, 120);
+    return () => clearTimeout(t);
+  }, [exportAct]);
+
+  /* sesi Supabase */
+  useEffect(() => {
+    if (!LIVE) return;
+    let unsub;
+    sb.auth.getSession().then(({ data }) => {
+      const s = data && data.session;
+      if (s && s.user) setUser({ name: s.user.email, role: ROLE.admin, email: s.user.email, pending: true });
+      setBooting(false);
+    }).catch(() => setBooting(false));
+    const r = sb.auth.onAuthStateChange((_e, s) => {
+      if (s && s.user) setUser((u) => (u && u.email === s.user.email ? u : { name: s.user.email, role: ROLE.admin, email: s.user.email, pending: true }));
+      else { setUser(null); setReady(false); }
+    });
+    unsub = r && r.data && r.data.subscription;
+    return () => { try { unsub && unsub.unsubscribe(); } catch (e) {} };
+  }, []);
+
+  /* muat data + tentukan role */
+  useEffect(() => {
+    if (!LIVE || !user || ready) return;
+    let alive = true; setLoadErr("");
+    loadAll().then((d) => {
+      if (!alive) return;
+      setTasks(d.tasks); setRab(d.rab); setTrans(d.trans); setTerms(d.terms); setDocs(d.docs); setPunch(d.punch);
+      setMytasks(d.mytasks); setLogs(d.logs);
+      if (d.meta && d.meta.fee != null) setFee(Number(d.meta.fee));
+      const email = (user.email || "").toLowerCase();
+      let list = d.users;
+      let me = list.find((u) => (u.email || "").toLowerCase() === email);
+      if (!me) { me = { id: uid(), name: email.split("@")[0], email, role: list.length === 0 ? ROLE.pm : ROLE.admin, active: true }; list = [...list, me]; }
+      setUsers(list);
+      setUser({ name: me.name, email: me.email, role: me.role });
+      setReady(true);
+    }).catch((e) => { if (alive) setLoadErr(e.message || "Gagal memuat data dari Supabase."); });
+    return () => { alive = false; };
+  }, [user, ready]);
+
+  /* autosave */
+  useSync("app_tasks", tasks, taskToRow, ready);
+  useSync("app_rab", rab, costToRow, ready);
+  useSync("app_trans", trans, costToRow, ready);
+  useSync("app_terms", terms, termToRow, ready);
+  useSync("app_docs", docs, docToRow, ready);
+  useSync("app_punch", punch, punchToRow, ready);
+  useSync("app_users", users, userToRow, ready);
+  useSync("app_mytasks", mytasks, myToRow, ready);
+  useSync("app_logs", logs, logToRow, ready);
+  useEffect(() => { if (!LIVE || !ready) return; const h = setTimeout(() => saveMetaFee(fee), 700); return () => clearTimeout(h); }, [fee, ready]);
+
+  const loggedRef = useRef(false);
+  useEffect(() => { if (user && !user.pending && !loggedRef.current) { loggedRef.current = true; log("Masuk aplikasi", `${user.name} · ${user.role}`); } }, [user]);
+
+  if (booting) return <div className="boot">Memeriksa sesi…</div>;
+  if (!user) return <Login onLogin={setUser} live={LIVE} />;
+  if (LIVE && !ready) return <div className="boot">{loadErr ? ("⚠ " + loadErr + " — muat ulang halaman.") : "Memuat data proyek…"}</div>;
+
+  const isPM = user.role === ROLE.pm;
+  /* HAK AKSES
+     Project Management : CRUD penuh semua fitur.
+     Admin              : hanya update dokumen, bukti pembayaran, dan status Kanban. */
+  const can = { manage: isPM, kanban: true, proof: true, docs: true };
+  const NAV = [
+    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+    { sec: "KEGIATAN" },
+    ...ACTS.map((a) => ({ id: "act:" + a.key, label: a.label, icon: a.icon })),
+    { sec: "UMUM" },
+    { id: "biaya", label: "Biaya", icon: "wallet" },
+    { id: "punchlist", label: "Punchlist", icon: "clipboard", badge: punchOpen },
+    { id: "arsip", label: "Arsip Dokumen", icon: "folder" },
+    { sec: "PERSONAL" },
+    { id: "mytasks", label: "Tugas Saya", icon: "tasks", badge: myOpen },
+    { id: "logs", label: "Log Aktivitas", icon: "history" },
+    ...(isPM ? [{ id: "users", label: "Manajemen User", icon: "users" }] : []),
+  ];
+  const cur = NAV.find((n) => n.id === page) || NAV[0];
+  const go = (id) => { setPage(id); if (isMobile) setSidebar(false); };
+  const doLogout = async () => { log("Keluar aplikasi", user.name); if (LIVE) { try { await sb.auth.signOut(); } catch (e) {} setReady(false); } setUser(null); loggedRef.current = false; };
+  const actKey = page.indexOf("act:") === 0 ? page.slice(4) : null;
+
+  return <div style={{ fontFamily: "Inter, system-ui, sans-serif", color: C.text, background: C.bg, minHeight: "100vh", display: "flex" }}>
+    {sidebar && isMobile && <div onClick={() => setSidebar(false)} style={{ position: "fixed", inset: 0, background: "rgba(19,41,61,.45)", zIndex: 60 }} />}
+    {sidebar && <aside style={{ width: 236, background: "#fff", borderRight: `1px solid ${C.line}`, flexShrink: 0, display: "flex", flexDirection: "column", position: isMobile ? "fixed" : "sticky", left: 0, top: 0, height: "100vh", zIndex: 61, overflowY: "auto" }}>
+      <div style={{ padding: 18, display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${C.line}` }}>
+        <Logo size={36} radius={10} />
+        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 14.5, color: C.ink }}>Welcome!</div></div>
+        {isMobile && <button onClick={() => setSidebar(false)} style={iconBtn}><Ic name="x" size={18} /></button>}
+      </div>
+      <nav style={{ padding: 12, flex: 1 }}>
+        {NAV.map((n, i) => n.sec
+          ? <div key={"s" + i} style={{ fontSize: 10, fontWeight: 800, color: "#9AAABC", letterSpacing: .6, padding: "12px 12px 5px" }}>{n.sec}</div>
+          : <button key={n.id} onClick={() => go(n.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", marginBottom: 3, borderRadius: 10, border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 600, textAlign: "left", color: page === n.id ? C.blue : C.slate, background: page === n.id ? C.blueSoft : "transparent" }}>
+            <Ic name={n.icon} size={18} />{n.label}
+            {n.badge > 0 && <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, color: "#fff", background: C.red, borderRadius: 99, padding: "1px 7px" }}>{n.badge}</span>}
+          </button>)}
+      </nav>
+      <div style={{ padding: 14, borderTop: `1px solid ${C.line}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 99, background: isPM ? C.blueSoft : C.greenSoft, color: isPM ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(user.name || "?")[0].toUpperCase()}</div>
+          <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div><div style={{ fontSize: 10.5, color: C.slate }}>{user.role}</div></div>
+        </div>
+        <button onClick={doLogout} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}><Ic name="logout" size={14} /> Keluar</button>
+      </div>
+    </aside>}
+
+    <main style={{ flex: 1, minWidth: 0, width: "100%" }}>
+      <header style={{ background: "#fff", borderBottom: `1px solid ${C.line}`, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 20, gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          <button onClick={() => setSidebar((s) => !s)} title="Menu" style={{ ...iconBtn, border: `1px solid ${C.line}`, width: 36, height: 36, color: C.ink, flexShrink: 0 }}><Ic name="menu" size={18} /></button>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 16.5, fontWeight: 800, letterSpacing: -.3, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cur.label}</div>
+            <div style={{ fontSize: 12, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{PROJECT.name}</div>
+          </div>
+        </div>
+      </header>
+
+      <div className="wrap">
+        {!isPM && <div style={{ display: "flex", alignItems: "center", gap: 9, background: C.blueSoft, border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 13px", marginBottom: 16, fontSize: 12.5, color: C.ink }}>
+          <span style={{ color: C.blue, flexShrink: 0 }}><Ic name="alert" size={16} /></span>
+          <span>Role <b>Admin</b>: dapat memperbarui <b>dokumen</b>, <b>bukti pembayaran</b>, dan <b>status Kanban</b>. Data lain hanya bisa dilihat.</span>
+        </div>}
+        {page === "dashboard" && <div className="g1">
+          <div style={{ background: `linear-gradient(120deg,${C.blueSoft},${C.greenSoft})`, borderRadius: 20, padding: "22px 24px", border: `1px solid ${C.line}` }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "#fff", padding: "4px 11px", borderRadius: 99, fontSize: 11.5, fontWeight: 600, marginBottom: 14, color: C.ink, border: `1px solid ${C.line}` }}><span style={{ width: 7, height: 7, borderRadius: 99, background: C.green }} /> Status per {fmtDate(PROJECT.statusDate)}</div>
+            <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -.6, color: C.ink }}>{PROJECT.name}</div>
+            <div style={{ fontSize: 13.5, color: C.slate, marginTop: 2 }}>{PROJECT.sub}</div>
+            <div style={{ display: "flex", gap: 28, marginTop: 18, flexWrap: "wrap" }}>
+              {[["Nilai Proyek", rpShort(proj), C.ink], ["Progres Keseluruhan", overall + "%", C.green], ["Kontraktor", rpShort(cTotal), C.green], ["Konsultan", rpShort(fee), C.blue], ["Transisi", rpShort(trTotal), C.orange]].map(([l, v, c], i) => <div key={i}><div style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 21, fontWeight: 800, color: c, fontVariantNumeric: "tabular-nums", letterSpacing: -.5, marginTop: 2 }}>{v}</div></div>)}
+            </div>
+          </div>
+
+          <div className="g4">
+            <Stat label="Total Aktivitas" value={tasks.length} sub={`${tasks.filter((t) => !t.parent).length} pekerjaan utama`} icon="calendar" color={C.ink} />
+            <Stat label="Punchlist Aktif" value={punchOpen} sub={`${punch.length} total temuan`} icon="clipboard" color={C.amber} />
+            <Stat label="Pembayaran Berikutnya" value={nextPay ? rpShort((nextPay.percent / 100) * fee) : "-"} sub={nextPay ? `${nextPay.desc} · ${fmtDate(nextPay.date)}` : "selesai"} icon="dollar" color={C.green} />
+            <Stat label="Progres Keseluruhan" value={overall + "%"} sub="tertimbang durasi" icon="check" color={C.green} />
+          </div>
+
+          <Card>
+            <CardHead icon="trending" title="Progres per Kegiatan" right={<span style={{ fontSize: 12.5, color: C.slate }}>klik untuk membuka</span>} />
+            <div className="g3">
+              {ACTS.map((a) => { const p = progressOf(tasks, a.key); const n = tasks.filter((t) => t.act === a.key).length; return (
+                <button key={a.key} onClick={() => go("act:" + a.key)} style={{ textAlign: "left", border: `1px solid ${C.line}`, borderRadius: 14, padding: 14, background: "#fff", cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}><span style={{ width: 28, height: 28, borderRadius: 8, background: a.soft, color: a.color, display: "grid", placeItems: "center" }}><Ic name={a.icon} size={15} /></span><span style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>{a.label}</span><span style={{ marginLeft: "auto", fontWeight: 800, fontSize: 15, color: a.color, fontVariantNumeric: "tabular-nums" }}>{p}%</span></div>
+                  <div style={{ marginTop: 10, height: 7, background: C.bg, borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${p}%`, height: "100%", background: a.color }} /></div>
+                  <div style={{ fontSize: 11.5, color: C.slate, marginTop: 7 }}>{n} aktivitas</div>
+                </button>); })}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHead icon="trending" title="S-Curve — Kontraktor · Konsultan · Transisi · Total" right={<div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div style={{ display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>{SERIES.map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 6, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}</div><Btn kind="ghost" size="sm" onClick={exportSCurvePNG}><Ic name="download" size={15} /> Unduh PNG</Btn></div>} />
+            <div ref={scWrapRef} style={{ minWidth: 0 }}><SCurveChart data={sc} today={scToday} /></div>
+          </Card>
+        </div>}
+
+        {actKey && <ActivityPage act={actKey} tasks={tasks} setTasks={setTasks} users={users} can={can} log={log} exporting={exportAct === actKey} onExport={() => setExportAct(actKey)} />}
+        {page === "biaya" && <Costs rab={rab} setRab={setRab} trans={trans} setTrans={setTrans} fee={fee} setFee={setFee} terms={terms} setTerms={setTerms} can={can} log={log} />}
+        {page === "punchlist" && <Punchlist punch={punch} setPunch={setPunch} tasks={tasks} can={can} log={log} />}
+        {page === "arsip" && <Arsip docs={docs} setDocs={setDocs} log={log} />}
+        {page === "mytasks" && <MyTasks mytasks={mytasks} setMytasks={setMytasks} user={user} log={log} />}
+        {page === "logs" && <Logs logs={logs} />}
+        {page === "users" && isPM && <UsersPage users={users} setUsers={setUsers} mytasks={mytasks} me={user} log={log} />}
+        {page === "users" && !isPM && <Card><Empty text="Halaman ini khusus role Project Management." /></Card>}
+      </div>
+    </main>
+
+    {exportAct && <div style={{ position: "fixed", left: -99999, top: 0, zIndex: -1 }}>
+      <div ref={ganttRef} style={{ background: "#fff", padding: 18, display: "inline-block" }}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: C.ink, fontFamily: "Inter, sans-serif" }}>{PROJECT.name}</div>
+        <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 12, fontFamily: "Inter, sans-serif" }}>Gantt Chart — Kegiatan {actOf(exportAct).label} · status per {fmtDate(PROJECT.statusDate)}</div>
+        <Gantt tasks={tasks} act={exportAct} statusDate={PROJECT.statusDate} editable={false} forExport />
+      </div>
+    </div>}
+  </div>;
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
