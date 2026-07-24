@@ -109,9 +109,9 @@ const PRIOC = { Tinggi: { c: "#DC2626", b: "#FEE9EC" }, Sedang: { c: "#D97706", 
 const MST = { todo: "Belum Dikerjakan", doing: "Dikerjakan", done: "Selesai" };
 const MCOLS = [MST.todo, MST.doing, MST.done];
 const MMETA = {
-  [MST.todo]: { color: "#64748B", bg: "#EEF3F8", icon: "circle" },
-  [MST.doing]: { color: "#D97706", bg: "#FDF3E3", icon: "half" },
-  [MST.done]: { color: C.green, bg: C.greenSoft, icon: "check" },
+  [MST.todo]:  { color: "#475569", bg: "#E8EDF3", icon: "circle", head: "#EEF2F7", row: "#FAFBFD", line: "#D8E0EA", bar: "#64748B" },
+  [MST.doing]: { color: "#B45309", bg: "#FDF0DC", icon: "half",   head: "#FEF6E9", row: "#FFFCF5", line: "#F3DFBC", bar: "#E89B1C" },
+  [MST.done]:  { color: "#15803D", bg: "#DCF5E7", icon: "check",  head: "#E9F9F0", row: "#F6FDF9", line: "#C3E9D4", bar: "#16A75C" },
 };
 /* kode tampilan kartu, mis. KON-004 */
 const ACTCODE = { konsultan: "KON", kontraktor: "KTR", transisi: "TRS" };
@@ -364,8 +364,8 @@ const punchToRow = (p) => ({ id: p.id, title: p.title, stage: p.stage, loc: p.lo
 const punchFromRow = (r) => ({ id: r.id, title: r.title, stage: r.stage, loc: r.loc || "", severity: r.severity, status: r.status, due: r.due_date, note: r.note || "", photo: r.photo_url || null });
 const userToRow = (u) => ({ id: u.id, name: u.name, email: (u.email || "").toLowerCase(), role: u.role, active: !!u.active });
 const userFromRow = (r) => ({ id: r.id, name: r.name, email: r.email || "", role: r.role || ROLE.admin, active: r.active !== false });
-const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done, status: t.status || (t.done ? MST.done : MST.todo), prio: t.prio || "Sedang", due_date: t.due || null });
-const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done, status: r.status || (r.done ? MST.done : MST.todo), prio: r.prio || "Sedang", due: r.due_date || "" });
+const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done, status: t.status || (t.done ? MST.done : MST.todo), prio: t.prio || "Sedang", due_date: t.due || null, note: t.note || null });
+const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done, status: r.status || (r.done ? MST.done : MST.todo), prio: r.prio || "Sedang", due: r.due_date || "", note: r.note || "" });
 const logToRow = (l) => ({ id: l.id, ts: l.ts, actor: l.actor, action: l.action, detail: l.detail || null });
 const logFromRow = (r) => ({ id: r.id, ts: r.ts, actor: r.actor || "", action: r.action || "", detail: r.detail || "" });
 
@@ -1557,37 +1557,94 @@ function Punchlist({ punch, setPunch, tasks, can, log }) {
 }
 
 /* ===== TUGAS SAYA (checklist ala OneNote) ===== */
+/* modal CRUD tugas pribadi */
+function MyTaskModal({ item, users, me, isPM, onSave, onClose }) {
+  const isNew = !item;
+  const [f, setF] = useState(item || { text: "", owner: me.email, status: MST.todo, prio: "Sedang", due: "", note: "" });
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  const save = () => {
+    if (!f.text.trim()) { setErr("Nama tugas wajib diisi."); return; }
+    onSave({ ...f, text: f.text.trim(), owner: (isPM ? (f.owner || me.email) : me.email).toLowerCase(), done: f.status === MST.done });
+  };
+  return <Modal title={isNew ? "Tugas Baru" : "Edit Tugas"} onClose={onClose} width={500}>
+    <Field label="Nama tugas"><Input autoFocus value={f.text} onChange={(e) => set("text", e.target.value)} placeholder="mis. Review gambar kerja Lt.21" onKeyDown={(e) => e.key === "Enter" && save()} /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Penanggung jawab">
+      {isPM
+        ? <Sel value={f.owner} onChange={(e) => set("owner", e.target.value)}>{users.filter((u) => u.active).map((u) => <option key={u.id} value={u.email}>{u.name} — {u.role}</option>)}</Sel>
+        : <Input value={me.name + " (Anda)"} disabled />}
+    </Field>{!isPM && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Role Admin hanya dapat membuat tugas untuk diri sendiri.</div>}</div>
+    <div className="g3" style={{ marginTop: 12, gap: 12 }}>
+      <Field label="Status"><Sel value={f.status} onChange={(e) => set("status", e.target.value)}>{MCOLS.map((x) => <option key={x}>{x}</option>)}</Sel></Field>
+      <Field label="Prioritas"><Sel value={f.prio} onChange={(e) => set("prio", e.target.value)}>{PRIO.map((x) => <option key={x}>{x}</option>)}</Sel></Field>
+      <Field label="Tenggat"><Input type="date" value={f.due || ""} onChange={(e) => set("due", e.target.value)} /></Field>
+    </div>
+    <div style={{ marginTop: 12 }}><Field label="Catatan (opsional)"><Area value={f.note || ""} onChange={(e) => set("note", e.target.value)} placeholder="Detail atau langkah pengerjaan" style={{ minHeight: 72 }} /></Field></div>
+    {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+      <Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save}>{isNew ? "Tambah" : "Simpan"}</Btn>
+    </div>
+  </Modal>;
+}
 function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
-  const [scope, setScope] = useState("me");          // me | all (khusus PM)
-  const [openG, setOpenG] = useState({});
-  const [adding, setAdding] = useState(null);        // status grup yang sedang ditambah
-  const [draft, setDraft] = useState({ text: "", owner: "", prio: "Sedang", due: "" });
+  const [view, setView] = useState("list");        // list | kanban
+  const [scope, setScope] = useState("me");
+  const [folded, setFolded] = useState({});
+  const [modal, setModal] = useState(null);
+  const [over, setOver] = useState(null);
+  const [drag, setDrag] = useState(null);
   const me = (user.email || "").toLowerCase();
+  const canEdit = isPM;                            // Admin: hanya tambah + ubah status
   const scoped = (isPM && scope === "all") ? mytasks : mytasks.filter((t) => (t.owner || "").toLowerCase() === me);
   const userOf = (em) => users.find((u) => (u.email || "").toLowerCase() === (em || "").toLowerCase());
+  const stOfT = (t) => t.status || MST.todo;
+
   const upd = (id, patch) => setMytasks((s) => s.map((t) => t.id === id ? { ...t, ...patch } : t));
-  const setStatus = (t, st) => { upd(t.id, { status: st, done: st === MST.done }); log && log("Ubah status tugas", `${t.text} → ${st}`); };
-  const cycle = (t) => { const i = MCOLS.indexOf(t.status || MST.todo); setStatus(t, MCOLS[(i + 1) % MCOLS.length]); };
-  const del = (t) => { setMytasks((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus tugas", t.text); };
-  const startAdd = (st) => { setAdding(st); setDraft({ text: "", owner: me, prio: "Sedang", due: "" }); };
-  const commit = () => {
-    const v = draft.text.trim(); if (!v) { setAdding(null); return; }
-    const owner = (isPM && draft.owner ? draft.owner : me).toLowerCase();
-    setMytasks((s) => [...s, { id: uid(), owner, text: v, status: adding, done: adding === MST.done, prio: draft.prio, due: draft.due }]);
-    log && log("Tambah tugas", `${v}${owner !== me ? " → " + owner : ""}`);
-    setDraft((d) => ({ ...d, text: "" }));
+  const moveTo = (id, st) => {
+    const t = mytasks.find((x) => x.id === id); if (!t || stOfT(t) === st) return;
+    upd(id, { status: st, done: st === MST.done });
+    log && log("Ubah status tugas", `${t.text} → ${st}`);
   };
-  const total = scoped.length, done = scoped.filter((t) => (t.status || MST.todo) === MST.done).length;
-  const late = scoped.filter((t) => t.due && (t.status || MST.todo) !== MST.done && D(t.due) < todayNoon()).length;
-  const th = { textAlign: "left", fontSize: 10.5, fontWeight: 700, color: "#9AAABC", padding: "7px 10px", textTransform: "uppercase", letterSpacing: .4, whiteSpace: "nowrap" };
-  const td = { padding: "9px 10px", fontSize: 13, color: C.ink, borderTop: `1px solid ${C.line}`, verticalAlign: "middle" };
+  const cycle = (t) => { const i = MCOLS.indexOf(stOfT(t)); moveTo(t.id, MCOLS[(i + 1) % MCOLS.length]); };
+  const save = (data) => {
+    if (data.id) { setMytasks((s) => s.map((t) => t.id === data.id ? { ...t, ...data } : t)); log && log("Edit tugas", data.text); }
+    else { setMytasks((s) => [...s, { ...data, id: uid() }]); log && log("Tambah tugas", `${data.text}${data.owner !== me ? " → " + data.owner : ""}`); }
+    setModal(null);
+  };
+  const del = (t) => { if (!canEdit) return; if (!window.confirm(`Hapus tugas "${t.text}"?`)) return; setMytasks((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus tugas", t.text); };
+
+  const dragProps = (t) => ({
+    draggable: true,
+    onDragStart: (e) => { e.dataTransfer.setData("text/plain", t.id); e.dataTransfer.effectAllowed = "move"; setDrag(t.id); },
+    onDragEnd: () => { setDrag(null); setOver(null); },
+  });
+  const dropProps = (st) => ({
+    onDragOver: (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOver(st); },
+    onDragLeave: () => setOver((o) => (o === st ? null : o)),
+    onDrop: (e) => { e.preventDefault(); const id = e.dataTransfer.getData("text/plain"); setOver(null); setDrag(null); if (id) moveTo(id, st); },
+  });
+
+  const total = scoped.length, done = scoped.filter((t) => stOfT(t) === MST.done).length;
+  const late = scoped.filter((t) => t.due && stOfT(t) !== MST.done && D(t.due) < todayNoon()).length;
+  const th = { textAlign: "left", fontSize: 10.5, fontWeight: 700, color: "#8A99AB", padding: "8px 10px", textTransform: "uppercase", letterSpacing: .4, whiteSpace: "nowrap" };
+
+  const OwnerCell = ({ owner }) => { const u = userOf(owner); return u
+    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 24, height: 24, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</span><span style={{ fontSize: 12.5 }}>{u.name}</span></span>
+    : <span style={{ fontSize: 12, color: C.slate }}>{owner}</span>; };
+  const StatusDot = ({ t, m }) => <button onClick={() => cycle(t)} title="Klik untuk pindah status"
+    style={{ width: 20, height: 20, borderRadius: 99, border: `2px solid ${m.bar}`, background: stOfT(t) === MST.done ? m.bar : "#fff", color: "#fff", cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, padding: 0 }}>
+    {stOfT(t) === MST.done && <Ic name="check" size={11} />}
+    {stOfT(t) === MST.doing && <span style={{ width: 8, height: 8, borderRadius: 99, background: m.bar }} />}
+  </button>;
+
   return <div className="g1">
     <div className="g4">
       <Stat label="Total Tugas" value={total} icon="tasks" color={C.ink} />
-      <Stat label="Selesai" value={done} sub={total ? Math.round(done / total * 100) + "% tuntas" : "—"} icon="check" color={C.green} />
-      <Stat label="Dikerjakan" value={scoped.filter((t) => (t.status || MST.todo) === MST.doing).length} icon="half" color={C.amber} />
+      <Stat label={MST.done} value={done} sub={total ? Math.round(done / total * 100) + "% tuntas" : "—"} icon="check" color={MMETA[MST.done].bar} />
+      <Stat label={MST.doing} value={scoped.filter((t) => stOfT(t) === MST.doing).length} icon="half" color={MMETA[MST.doing].bar} />
       <Stat label="Lewat Tenggat" value={late} icon="alert" color={C.red} />
     </div>
+
     <Card style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "16px 18px", borderBottom: `1px solid ${C.line}`, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -1597,81 +1654,148 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
             <div style={{ fontSize: 11.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{scope === "all" ? "Semua tugas tim" : `${user.name} · ${user.email}`}</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {isPM && <Sel value={scope} onChange={(e) => setScope(e.target.value)} style={{ width: 168, padding: "7px 10px" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 4, background: C.bg, padding: 3, borderRadius: 10, border: `1px solid ${C.line}` }}>
+            {[["list", "tasks", "Daftar"], ["kanban", "kanban", "Kanban"]].map(([id, ic, lb]) => <button key={id} onClick={() => setView(id)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: "none", background: view === id ? "#fff" : "transparent", color: view === id ? C.violet : C.slate, fontWeight: 700, fontSize: 12.5, cursor: "pointer", boxShadow: view === id ? "0 1px 3px rgba(16,42,67,.1)" : "none" }}><Ic name={ic} size={14} /> {lb}</button>)}
+          </div>
+          {isPM && <Sel value={scope} onChange={(e) => setScope(e.target.value)} style={{ width: 166, padding: "7px 10px" }}>
             <option value="me">Hanya tugas saya</option><option value="all">Semua tugas tim</option>
           </Sel>}
-          <Btn onClick={() => startAdd(MST.todo)}><Ic name="plus" size={15} /> Tugas Baru</Btn>
+          <Btn onClick={() => setModal({ item: null })}><Ic name="plus" size={15} /> Tugas Baru</Btn>
         </div>
       </div>
 
-      {MCOLS.map((st) => {
-        const items = scoped.filter((t) => (t.status || MST.todo) === st);
+      {!canEdit && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 18px", background: C.blueSoft, borderBottom: `1px solid ${C.line}`, fontSize: 12, color: C.ink }}>
+        <span style={{ color: C.blue, flexShrink: 0 }}><Ic name="alert" size={14} /></span>
+        Role Admin: dapat <b>menambah tugas</b> untuk diri sendiri dan <b>mengubah status</b> (klik lingkaran atau seret kartu). Mengubah isi tugas, menghapus, dan menugaskan ke orang lain hanya untuk Project Management.
+      </div>}
+
+      {/* ---------- TAMPILAN DAFTAR ---------- */}
+      {view === "list" && MCOLS.map((st) => {
+        const items = scoped.filter((t) => stOfT(t) === st);
         const m = MMETA[st];
-        const closed = openG[st];
-        return <div key={st} style={{ borderBottom: `1px solid ${C.line}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", background: "#FBFCFE" }}>
-            <button onClick={() => setOpenG((s) => ({ ...s, [st]: !s[st] }))} style={{ ...iconBtn, padding: 2, transform: closed ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={15} /></button>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 99, padding: "4px 11px" }}><Ic name={m.icon} size={12} /> {st}</span>
-            <span style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>{items.length}</span>
+        const hidden = folded[st];
+        const isOver = over === st;
+        return <div key={st} {...dropProps(st)} style={{ borderBottom: `1px solid ${C.line}`, background: isOver ? m.bg : "transparent", transition: ".12s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", background: isOver ? m.bg : m.head, borderLeft: `4px solid ${m.bar}` }}>
+            <button onClick={() => setFolded((s) => ({ ...s, [st]: !s[st] }))} style={{ ...iconBtn, padding: 2, color: m.color, transform: hidden ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={15} /></button>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800, color: m.color, background: m.bg, borderRadius: 99, padding: "4px 11px" }}><Ic name={m.icon} size={12} /> {st}</span>
+            <span style={{ fontSize: 11.5, color: m.color, fontWeight: 700 }}>{items.length}</span>
+            {isOver && <span style={{ fontSize: 11.5, fontWeight: 700, color: m.color, marginLeft: 4 }}>lepaskan di sini →</span>}
           </div>
-          {!closed && <div className="scrollx">
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
-              <thead><tr><th style={{ ...th, width: "44%" }}>Nama Tugas</th><th style={th}>Penanggung Jawab</th><th style={th}>Tenggat</th><th style={th}>Prioritas</th><th style={{ ...th, width: 44 }}></th></tr></thead>
+          {!hidden && <div className="scrollx">
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+              <thead><tr style={{ background: m.head }}>
+                <th style={{ ...th, width: "42%" }}>Nama Tugas</th><th style={th}>Penanggung Jawab</th><th style={th}>Tenggat</th><th style={th}>Prioritas</th><th style={{ ...th, width: 76 }}>Aksi</th>
+              </tr></thead>
               <tbody>
-                {items.map((t) => {
-                  const u = userOf(t.owner);
+                {items.map((t, i) => {
                   const isLate = t.due && st !== MST.done && D(t.due) < todayNoon();
-                  return <tr key={t.id}>
+                  const td = { padding: "10px", fontSize: 13, color: C.ink, borderTop: `1px solid ${m.line}`, verticalAlign: "middle", background: drag === t.id ? m.bg : (i % 2 ? "#fff" : m.row) };
+                  return <tr key={t.id} {...dragProps(t)} style={{ cursor: "grab", opacity: drag === t.id ? .5 : 1 }}>
                     <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <button onClick={() => cycle(t)} title="Klik untuk ganti status"
-                        style={{ width: 20, height: 20, borderRadius: 99, border: `2px solid ${st === MST.done ? C.green : (st === MST.doing ? C.amber : "#C7D2DE")}`, background: st === MST.done ? C.green : "#fff", color: "#fff", cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, padding: 0 }}>
-                        {st === MST.done && <Ic name="check" size={11} />}
-                        {st === MST.doing && <span style={{ width: 8, height: 8, borderRadius: 99, background: C.amber }} />}
-                      </button>
-                      <input value={t.text} onChange={(e) => upd(t.id, { text: e.target.value })}
-                        style={{ flex: 1, minWidth: 0, border: "1px solid transparent", background: "transparent", fontSize: 13.5, fontFamily: "inherit", color: st === MST.done ? C.slate : C.ink, textDecoration: st === MST.done ? "line-through" : "none", padding: "4px 6px", borderRadius: 8, outline: "none" }}
-                        onFocus={(e) => { e.target.style.border = `1px solid ${C.violet}`; e.target.style.background = "#fff"; }}
-                        onBlur={(e) => { e.target.style.border = "1px solid transparent"; e.target.style.background = "transparent"; }} />
+                      <span style={{ color: "#B8C4D2", flexShrink: 0, display: "grid", placeItems: "center" }} title="Seret untuk pindah status"><Ic name="grip" size={14} /></span>
+                      <StatusDot t={t} m={m} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: st === MST.done ? C.slate : C.ink, textDecoration: st === MST.done ? "line-through" : "none" }}>{t.text}</div>
+                        {t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 340 }}>{t.note}</div>}
+                      </div>
                     </div></td>
-                    <td style={td}>{u
-                      ? <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ width: 24, height: 24, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800 }}>{(u.name || "?")[0].toUpperCase()}</span><span style={{ fontSize: 12.5 }}>{u.name}</span></span>
-                      : <span style={{ fontSize: 12, color: C.slate }}>{t.owner}</span>}</td>
+                    <td style={td}><OwnerCell owner={t.owner} /></td>
                     <td style={td}>{t.due
-                      ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: isLate ? C.red : C.slate, fontWeight: isLate ? 700 : 500 }}><Ic name="calendar" size={12} /> {fmtDate(t.due)}</span>
-                      : <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, color: "#A9B7C6", cursor: "pointer" }}><Ic name="calendar" size={12} /> atur tanggal<input type="date" onChange={(e) => upd(t.id, { due: e.target.value })} style={{ display: "none" }} /></label>}</td>
-                    <td style={td}><Sel value={t.prio || "Sedang"} onChange={(e) => upd(t.id, { prio: e.target.value })}
-                      style={{ width: 112, padding: "4px 8px", fontSize: 11.5, fontWeight: 700, color: (PRIOC[t.prio] || PRIOC.Sedang).c, background: (PRIOC[t.prio] || PRIOC.Sedang).b, border: "none" }}>
-                      {PRIO.map((x) => <option key={x} style={{ color: C.ink, background: "#fff" }}>{x}</option>)}
-                    </Sel></td>
-                    <td style={td}><button onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button></td>
+                      ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, color: isLate ? C.red : C.slate, fontWeight: isLate ? 700 : 500 }}><Ic name="calendar" size={12} /> {fmtDate(t.due)}{isLate && " · telat"}</span>
+                      : <span style={{ fontSize: 12, color: "#A9B7C6" }}>—</span>}</td>
+                    <td style={td}><PrioChip prio={t.prio || "Sedang"} /></td>
+                    <td style={td}><div style={{ display: "flex", gap: 2 }}>
+                      <button title={canEdit ? "Edit tugas" : "Lihat tugas"} onClick={() => setModal({ item: t })} style={{ ...iconBtn, color: canEdit ? C.violet : C.slate }}><Ic name={canEdit ? "pencil" : "eye"} size={14} /></button>
+                      {canEdit && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>}
+                    </div></td>
                   </tr>;
                 })}
-                {adding === st && <tr><td style={td} colSpan={5}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <Input autoFocus value={draft.text} onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setAdding(null); }}
-                      placeholder="Nama tugas — Enter untuk simpan, Esc untuk tutup" style={{ flex: "1 1 240px" }} />
-                    {isPM && <Sel value={draft.owner} onChange={(e) => setDraft((d) => ({ ...d, owner: e.target.value }))} style={{ width: 170 }}>
-                      {users.filter((u) => u.active).map((u) => <option key={u.id} value={u.email}>{u.name}</option>)}
-                    </Sel>}
-                    <Input type="date" value={draft.due} onChange={(e) => setDraft((d) => ({ ...d, due: e.target.value }))} style={{ width: 150 }} />
-                    <Sel value={draft.prio} onChange={(e) => setDraft((d) => ({ ...d, prio: e.target.value }))} style={{ width: 118 }}>{PRIO.map((x) => <option key={x}>{x}</option>)}</Sel>
-                    <Btn size="sm" onClick={commit}>Simpan</Btn>
-                    <Btn size="sm" kind="ghost" onClick={() => setAdding(null)}>Tutup</Btn>
-                  </div>
-                </td></tr>}
-                {items.length === 0 && adding !== st && <tr><td style={{ ...td, color: "#A9B7C6", fontSize: 12.5 }} colSpan={5}>Belum ada tugas pada grup ini.</td></tr>}
-                <tr><td style={{ ...td, paddingTop: 8, paddingBottom: 10 }} colSpan={5}>
-                  <button onClick={() => startAdd(st)} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: C.violet, fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "2px 0" }}><Ic name="plus" size={14} /> Tambah Tugas</button>
+                {items.length === 0 && <tr><td colSpan={5} style={{ padding: "14px 16px", fontSize: 12.5, color: "#A9B7C6", borderTop: `1px solid ${m.line}`, background: m.row }}>Belum ada tugas — seret tugas ke sini atau tambahkan baru.</td></tr>}
+                <tr><td colSpan={5} style={{ padding: "8px 12px", borderTop: `1px solid ${m.line}`, background: m.row }}>
+                  <button onClick={() => setModal({ item: null, status: st })} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: m.color, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}><Ic name="plus" size={14} /> Tambah Tugas</button>
                 </td></tr>
               </tbody>
             </table>
           </div>}
         </div>;
       })}
+
+      {/* ---------- TAMPILAN KANBAN ---------- */}
+      {view === "kanban" && <div style={{ padding: 16 }}>
+        <div className="g3">
+          {MCOLS.map((st) => {
+            const items = scoped.filter((t) => stOfT(t) === st);
+            const m = MMETA[st];
+            const isOver = over === st;
+            return <div key={st} {...dropProps(st)}
+              style={{ background: isOver ? m.bg : m.row, border: `1px ${isOver ? "solid" : "dashed"} ${isOver ? m.bar : m.line}`, borderTop: `3px solid ${m.bar}`, borderRadius: 14, padding: 12, minHeight: 240, transition: ".12s", minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 800, color: m.color }}><Ic name={m.icon} size={13} /> {st}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: m.color, background: m.bg, borderRadius: 6, padding: "1px 7px" }}>{items.length}</span>
+                <button title="Tambah tugas" onClick={() => setModal({ item: null, status: st })} style={{ ...iconBtn, marginLeft: "auto", padding: 3, color: m.color }}><Ic name="plus" size={15} /></button>
+              </div>
+              <div style={{ display: "grid", gap: 9 }}>
+                {items.map((t) => {
+                  const isLate = t.due && st !== MST.done && D(t.due) < todayNoon();
+                  return <div key={t.id} {...dragProps(t)} onDoubleClick={() => setModal({ item: t })}
+                    style={{ background: "#fff", border: `1px solid ${m.line}`, borderLeft: `3px solid ${m.bar}`, borderRadius: 12, padding: "11px 12px", cursor: "grab", opacity: drag === t.id ? .5 : 1, boxShadow: "0 1px 3px rgba(16,42,67,.06)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                      <PrioChip prio={t.prio || "Sedang"} />
+                      {isLate && <Chip text="Terlambat" c={C.red} b="#FDECEF" />}
+                      <span style={{ marginLeft: "auto", display: "flex", gap: 1 }}>
+                        <button title={canEdit ? "Edit" : "Lihat"} onClick={() => setModal({ item: t })} style={{ ...iconBtn, padding: 3, color: canEdit ? C.violet : C.slate }}><Ic name={canEdit ? "pencil" : "eye"} size={13} /></button>
+                        {canEdit && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, padding: 3, color: C.red }}><Ic name="trash" size={13} /></button>}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                      <StatusDot t={t} m={m} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35, color: st === MST.done ? C.slate : C.ink, textDecoration: st === MST.done ? "line-through" : "none" }}>{t.text}</div>
+                        {t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{t.note}</div>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10, paddingTop: 9, borderTop: `1px solid ${m.line}` }}>
+                      <OwnerCell owner={t.owner} />
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: isLate ? C.red : C.slate, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}><Ic name="clock" size={11} /> {t.due ? fmtDate(t.due) : "tanpa tenggat"}</span>
+                    </div>
+                  </div>;
+                })}
+                {items.length === 0 && <div style={{ fontSize: 11.5, color: "#A9B7C6", textAlign: "center", padding: "20px 0" }}>Seret tugas ke sini</div>}
+                <AddNew onClick={() => setModal({ item: null, status: st })} label="Tambah tugas" />
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>}
     </Card>
+
+    {modal && (canEdit || !modal.item)
+      ? <MyTaskModal item={modal.item ? { ...modal.item } : (modal.status ? { text: "", owner: me, status: modal.status, prio: "Sedang", due: "", note: "" } : null)}
+          users={users} me={{ email: me, name: user.name }} isPM={isPM} onSave={save} onClose={() => setModal(null)} />
+      : modal && <MyTaskView task={modal.item} owner={userOf(modal.item.owner)} onClose={() => setModal(null)} />}
   </div>;
+}
+/* Admin: lihat detail tanpa mengubah isi */
+function MyTaskView({ task, owner, onClose }) {
+  const m = MMETA[task.status || MST.todo];
+  const row = (l, v) => <div style={{ display: "flex", gap: 10, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
+    <div style={{ width: 130, fontSize: 12, color: C.slate, flexShrink: 0 }}>{l}</div><div style={{ fontSize: 13, color: C.ink, minWidth: 0, flex: 1 }}>{v}</div></div>;
+  return <Modal title="Detail Tugas" onClose={onClose} width={470}>
+    <div style={{ fontSize: 15.5, fontWeight: 800, color: C.ink, marginBottom: 12 }}>{task.text}</div>
+    {row("Status", <Pill text={task.status || MST.todo} color={m.color} bg={m.bg} />)}
+    {row("Penanggung jawab", owner ? owner.name : task.owner)}
+    {row("Prioritas", <PrioChip prio={task.prio || "Sedang"} />)}
+    {row("Tenggat", task.due ? fmtDate(task.due) : "—")}
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 5 }}>Catatan</div>
+      <div style={{ fontSize: 13, color: task.note ? C.ink : C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", whiteSpace: "pre-wrap", minHeight: 50 }}>{task.note || "Tidak ada catatan."}</div>
+    </div>
+    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 12 }}>Role Admin hanya dapat mengubah status tugas — klik lingkaran status atau seret kartunya.</div>
+    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><Btn kind="ghost" onClick={onClose}>Tutup</Btn></div>
+  </Modal>;
 }
 
 /* ===== MANAJEMEN USER (khusus Project Management) ===== */
