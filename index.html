@@ -1178,7 +1178,7 @@ function Arsip({ docs, setDocs, log }) {
     const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
     setErr("");
     if (file.type !== "application/pdf") { setErr("Hanya file PDF yang didukung."); return; }
-    if (file.size > 10 * 1048576) { setErr(`Ukuran ${mb(file.size)} melebihi batas 10 MB.`); return; }
+    if (file.size > 40 * 1048576) { setErr(`Ukuran ${mb(file.size)} melebihi batas 10 MB.`); return; }
     setPending({ file, name: file.name.replace(/\.pdf$/i, "") });
   };
   const commit = async () => {
