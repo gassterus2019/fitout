@@ -361,15 +361,31 @@ const sbSignup = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 /* Portal memakai USERNAME, bukan email. Username dipetakan ke alamat semu
    "<username>@mrt-portal.local" hanya untuk sistem autentikasi Supabase —
    user tidak pernah melihat atau perlu mengisi email. */
-const PORTAL_DOMAIN = "mrt-portal.local";
+/* Domain semu untuk memetakan username -> akun Supabase.
+   HARUS memakai TLD yang sah. "mrt-portal.local" DITOLAK Supabase karena
+   ".local" bukan TLD publik. "example.com" dipesan oleh RFC 2606 sehingga
+   tidak mungkin dimiliki siapa pun dan formatnya pasti valid.
+   Bila Supabase-mu tetap menolak, ganti saja dengan domain lain yang wajar,
+   mis. "mrtportal.co.id" — tidak ada surel yang benar-benar dikirim. */
+const PORTAL_DOMAIN = "example.com";
 const toAuthEmail = (u) => { const v = (u || "").trim().toLowerCase(); return v.indexOf("@") >= 0 ? v : v + "@" + PORTAL_DOMAIN; };
 const fromAuthEmail = (e) => { const v = (e || "").toLowerCase(); return v.indexOf("@" + PORTAL_DOMAIN) > 0 ? v.split("@")[0] : v; };
+const RE_USER = /^[a-zA-Z0-9._-]{3,24}$/;
+const RE_MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
+/* terima DUA bentuk: username biasa, atau alamat email lengkap */
+const validLogin = (v) => { const x = (v || "").trim(); return x.indexOf("@") >= 0 ? RE_MAIL.test(x) : RE_USER.test(x); };
 const uname = (u) => (u && u.username) ? u.username : fromAuthEmail(u && u.email);
 
 async function portalCreateUser(email, password) {
   if (!LIVE) return { created: true, demo: true };
-  const { data, error } = await sbSignup.auth.signUp({ email: toAuthEmail(email), password });
-  if (error) throw new Error(error.message);
+  const addr = toAuthEmail(email);
+  const { data, error } = await sbSignup.auth.signUp({ email: addr, password });
+  if (error) {
+    if (/invalid/i.test(error.message || "") && /email/i.test(error.message || "")) {
+      throw new Error(`Supabase menolak alamat "${addr}". Ganti nilai PORTAL_DOMAIN di bagian atas index.html dengan domain ber-TLD wajar (mis. "mrtportal.co.id"), lalu coba lagi.`);
+    }
+    throw new Error(error.message);
+  }
   const u = data && data.user;
   if (u && Array.isArray(u.identities) && u.identities.length === 0) return { created: false, exists: true };
   return { created: true, needConfirm: !!(u && !data.session) };
@@ -660,10 +676,11 @@ function Login({ onLogin, live }) {
     setErr("");
     if (live) {
       if (!u.trim() || !p) { setErr("Username dan password wajib diisi."); return; }
+      if (!validLogin(u)) { setErr("Format username tidak valid. Isi username (mis. budi.santoso) atau alamat email lengkap bila akunmu dibuat dengan email."); return; }
       setBusy(true);
       try {
         const { error } = await sb.auth.signInWithPassword({ email: toAuthEmail(u), password: p });
-        if (error) { setErr(/invalid/i.test(error.message || "") ? "Username atau password salah." : (error.message || "Gagal masuk.")); setBusy(false); }
+        if (error) { setErr(/invalid/i.test(error.message || "") ? ("Username atau password salah." + (u.indexOf("@") < 0 ? " Bila akunmu dibuat memakai email, isi alamat email lengkapnya." : "")) : (error.message || "Gagal masuk.")); setBusy(false); }
       } catch (e) { setErr("Gagal terhubung ke server."); setBusy(false); }
     } else {
       const f = USERS.find((x) => x.u === u.trim() && x.p === p);
@@ -2238,7 +2255,7 @@ function UserModal({ item, existing, onSave, onClose }) {
     const un = (f.username || "").trim().toLowerCase();
     if (!f.name.trim()) { setErr("Nama karyawan wajib diisi."); return; }
     if (!un) { setErr("Username wajib diisi."); return; }
-    if (!/^[a-z0-9._-]{3,24}$/.test(un)) { setErr("Username 3–24 karakter, hanya huruf kecil, angka, titik, garis bawah, atau strip."); return; }
+    if (!validLogin(un)) { setErr("Username 3–24 karakter (huruf, angka, titik, garis bawah, strip). Boleh juga diisi alamat email lengkap."); return; }
     if (isNew && existing.some((u) => uname(u) === un)) { setErr("Username sudah dipakai."); return; }
     if (isNew) {
       if (pw.length < 8) { setErr("Password minimal 8 karakter."); return; }
@@ -2267,7 +2284,11 @@ function UserModal({ item, existing, onSave, onClose }) {
     <Field label="Nama Karyawan" req><Input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
     <div style={{ marginTop: 12 }}><Field label="Username" req>
       <Input value={f.username || ""} onChange={(e) => set("username", e.target.value.toLowerCase())} disabled={!isNew} placeholder="mis. budi.santoso" />
-    </Field>{!isNew && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Username tidak bisa diubah karena terikat ke akun login.</div>}</div>
+    </Field>
+      {isNew
+        ? <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Akan terdaftar sebagai <b style={{ color: C.ink, fontFamily: "monospace" }}>{toAuthEmail(f.username || "username")}</b> — alamat internal, tidak pernah dikirimi surel.</div>
+        : <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Username tidak bisa diubah karena terikat ke akun login.</div>}
+    </div>
     {isNew && <>
       <div style={{ marginTop: 12 }}><Field label="Password" req><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="minimal 8 karakter" /></Field></div>
       <div style={{ marginTop: 12 }}><Field label="Konfirmasi Password" req><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="ulangi password" onKeyDown={(e) => e.key === "Enter" && save()} /></Field></div>
@@ -2344,7 +2365,7 @@ function UsersPage({ users, setUsers, mytasks, me, log }) {
         <thead><tr><th style={th}>Nama</th><th style={th}>Username</th><th style={th}>Role</th><th style={th}>Akses</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 76 }}></th></tr></thead>
         <tbody>{users.map((u) => { const tc = taskOf(u.email); return <tr key={u.id} style={{ opacity: u.active ? 1 : .6 }}>
           <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ width: 32, height: 32, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{u.email === me.email && <div style={{ fontSize: 10.5, color: C.violet, fontWeight: 700 }}>akun Anda</div>}</div></div></td>
-          <td style={{ ...td, color: C.slate, fontFamily: "monospace", fontSize: 12.5 }}>{uname(u)}</td>
+          <td style={td}><div style={{ fontFamily: "monospace", fontSize: 12.5, color: C.ink }}>{uname(u)}</div><div style={{ fontSize: 10, color: "#A9B7C6" }}>{u.email}</div></td>
           <td style={td}><Pill text={u.role} color={u.role === ROLE.pm ? C.blue : C.green} bg={u.role === ROLE.pm ? C.blueSoft : C.greenSoft} /></td>
           <td style={td}><Pill text={u.active ? "Aktif" : "Nonaktif"} color={u.active ? C.green : C.red} bg={u.active ? C.greenSoft : "#FDECEF"} /></td>
           <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.slate }}>{tc.filter((t) => (t.status || MST.todo) === MST.done).length}/{tc.length}</td>
