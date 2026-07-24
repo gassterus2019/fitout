@@ -690,9 +690,9 @@ function Gantt({ tasks, act, statusDate, editable, onChange, onEdit, onDelete, o
   const compact = w < 760;
   const wpx = forExport ? 20 : (compact ? 24 : 30);      // lebar 1 minggu (px)
   const px = wpx / 7;                                     // lebar 1 hari
-  const rh = forExport ? 26 : 42, hMon = forExport ? 18 : 22, hWk = forExport ? 16 : 20;
+  const rh = forExport ? 34 : 42, hMon = forExport ? 20 : 22, hWk = forExport ? 18 : 20;
   const hh = hMon + hWk;
-  const leftW = forExport ? 240 : (compact ? 186 : (editable ? 392 : 286));
+  const leftW = forExport ? 310 : (compact ? 186 : (editable ? 392 : 286));
   const rows = useMemo(() => buildRows(tasks, act, collapsed, forExport), [tasks, act, collapsed, forExport]);
 
   /* rentang selalu mencakup HARI INI + tanggal status, supaya garis penanda
@@ -753,11 +753,11 @@ function Gantt({ tasks, act, statusDate, editable, onChange, onEdit, onDelete, o
         <div style={{ width: leftW, flexShrink: 0, borderRight: `1px solid ${C.line}`, position: forExport ? "static" : "sticky", left: 0, background: "#fff", zIndex: 3 }}>
           <div style={{ height: hh, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 11, fontWeight: 700, color: C.slate, borderBottom: `1px solid ${C.line}`, background: C.bg }}>PEKERJAAN / SUB PEKERJAAN</div>
           {rows.map((t) => { const m = SMETA[t.status] || SMETA[STATUS.todo]; return (
-            <div key={t.id} style={{ height: rh, display: "flex", alignItems: "center", gap: 6, padding: `0 10px 0 ${10 + t.level * 16}px`, borderBottom: `1px solid ${C.line}`, background: t.level === 0 ? "#FCFDFE" : "#fff" }}>
+            <div key={t.id} style={{ height: rh, display: "flex", alignItems: "center", gap: 6, padding: `0 10px 0 ${10 + t.level * 16}px`, borderBottom: `1px solid ${C.line}`, background: t.level === 0 ? "#FCFDFE" : "#fff", overflow: "hidden", boxSizing: "border-box" }}>
               {t.kids > 0 && !forExport ? <button onClick={() => setCollapsed((s) => ({ ...s, [t.id]: !s[t.id] }))} title={collapsed[t.id] ? "Buka" : "Tutup"} style={{ ...iconBtn, padding: 2, transform: collapsed[t.id] ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={14} /></button> : <span style={{ width: t.level === 0 ? 18 : 0 }} />}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: forExport ? 11 : (compact ? 12 : 13), fontWeight: t.level === 0 ? 700 : 500, color: t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: t.status === STATUS.cancel ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
-                {!compact && <div style={{ fontSize: 10.5, color: C.slate }}>{fmtDate(t.start)} → {fmtDate(t.finish)}{t.kids > 0 ? ` · ${t.kids} sub` : ""}</div>}
+                <div style={{ fontSize: forExport ? 11 : (compact ? 12 : 13), lineHeight: 1.25, fontWeight: t.level === 0 ? 700 : 500, color: t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: t.status === STATUS.cancel ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                {!compact && <div style={{ fontSize: forExport ? 9.5 : 10.5, color: C.slate, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(t.start)} → {fmtDate(t.finish)}{t.kids > 0 ? ` · ${t.kids} sub` : ""}</div>}
               </div>
               <span style={{ width: 7, height: 7, borderRadius: 99, background: m.bar, flexShrink: 0 }} title={t.status} />
               <span style={{ fontSize: 11.5, fontWeight: 700, color: t.percent >= 100 ? C.green : C.slate, fontVariantNumeric: "tabular-nums", minWidth: 30, textAlign: "right" }}>{t.percent}%</span>
@@ -818,6 +818,127 @@ function Gantt({ tasks, act, statusDate, editable, onChange, onEdit, onDelete, o
       {KCOLS.map((s) => <span key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 8, borderRadius: 3, background: SMETA[s].bar + "40", border: `1px ${s === STATUS.cancel ? "dashed" : "solid"} ${SMETA[s].bar}` }} /> {s}</span>)}
       <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 2, height: 12, background: C.amber }} /> Hari ini</span>
       <span style={{ marginLeft: "auto", fontSize: 11 }}>Angka pada sumbu = minggu ke- dalam tahun · arahkan kursor untuk melihat tanggal</span>
+    </div>}
+  </div>;
+}
+
+/* ===== MASTER GANTT (dashboard) — 3 kegiatan, hanya pekerjaan induk ===== */
+function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummary }) {
+  const [closed, setClosed] = useState({});
+  const [tip, setTip] = useState(null);
+  const w = useWinW();
+  const compact = w < 760;
+  const wpx = forExport ? 20 : (compact ? 22 : 26);
+  const px = wpx / 7;
+  const rhG = forExport ? 32 : 40, rhT = forExport ? 28 : 34;
+  const hMon = forExport ? 20 : 22, hWk = forExport ? 18 : 20, hh = hMon + hWk;
+  const leftW = forExport ? 300 : (compact ? 180 : 264);
+
+  /* susun baris: header kegiatan + pekerjaan induk (sub pekerjaan tidak ditampilkan) */
+  const groups = useMemo(() => ACTS.map((a) => {
+    const list = tasks.filter((t) => t.act === a.key);
+    const parents = list.filter((t) => !t.parent).map((p) => rollup(p, list.filter((k) => k.parent === p.id)));
+    let mn = null, mx = null;
+    parents.forEach((p) => { const sd = D(p.start), fd = D(p.finish); if (!mn || sd < mn) mn = sd; if (!mx || fd > mx) mx = fd; });
+    return { act: a, parents, start: mn ? iso(mn) : null, finish: mx ? iso(mx) : null, pct: progressOf(tasks, a.key) };
+  }).filter((g) => g.parents.length), [tasks]);
+
+  const rows = [];
+  groups.forEach((g) => {
+    rows.push({ kind: "grp", g });
+    if (!summaryOnly && !closed[g.act.key]) g.parents.forEach((p) => rows.push({ kind: "task", g, t: p }));
+  });
+
+  const range = useMemo(() => {
+    let mn = null, mx = null;
+    groups.forEach((g) => { if (g.start) { const sd = D(g.start), fd = D(g.finish); if (!mn || sd < mn) mn = sd; if (!mx || fd > mx) mx = fd; } });
+    if (!mn) { mn = D("2026-05-01"); mx = D("2027-04-30"); }
+    [todayNoon(), D(statusDate)].forEach((d) => { if (d < mn) mn = d; if (d > mx) mx = d; });
+    return { min: mondayOf(addDays(mn, -7)), max: addDays(mondayOf(addDays(mx, 7)), 6) };
+  }, [groups, statusDate]);
+
+  const W = (days(range.min, range.max) + 1) * px;
+  const xOf = (d) => days(range.min, D(d)) * px;
+  const wOf = (a, b) => (days(D(a), D(b)) + 1) * px;
+  const weeks = useMemo(() => { const o = []; let c = new Date(range.min); while (c <= range.max) { o.push({ start: new Date(c), left: days(range.min, c) * px, wk: isoWeek(c), yr: isoWeekYear(c) }); c = addDays(c, 7); } return o; }, [range, px]);
+  const months = useMemo(() => {
+    const a = []; let c = new Date(range.min.getFullYear(), range.min.getMonth(), 1);
+    while (c <= range.max) { const st = c < range.min ? range.min : c; const nx = new Date(c.getFullYear(), c.getMonth() + 1, 1); const e = nx > range.max ? range.max : addDays(nx, -1);
+      a.push({ label: `${MON[c.getMonth()]} ${String(c.getFullYear()).slice(2)}`, left: days(range.min, st) * px, width: (days(st, e) + 1) * px }); c = nx; }
+    return a;
+  }, [range, px]);
+
+  const todayX = xOf(iso(todayNoon()));
+  const bodyH = rows.reduce((a, r) => a + (r.kind === "grp" ? rhG : rhT), 0);
+  const wkText = (k) => `Minggu ke-${k.wk} (${k.yr}) · ${fmtDate(iso(k.start))} – ${fmtDate(iso(addDays(k.start, 6)))}`;
+  if (!rows.length) return <Empty text="Belum ada pekerjaan pada ketiga kegiatan." />;
+
+  return <div>
+    <div className={forExport ? "" : "scrollx"} style={{ borderRadius: 14, border: `1px solid ${C.line}`, background: "#fff", position: "relative" }}>
+      <div style={{ display: "flex", minWidth: leftW + W, ...(forExport ? { width: leftW + W } : {}) }}>
+        <div style={{ width: leftW, flexShrink: 0, borderRight: `1px solid ${C.line}`, position: forExport ? "static" : "sticky", left: 0, background: "#fff", zIndex: 3 }}>
+          <div style={{ height: hh, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 11, fontWeight: 700, color: C.slate, borderBottom: `1px solid ${C.line}`, background: C.bg }}>KEGIATAN / PEKERJAAN INDUK</div>
+          {rows.map((r, i) => r.kind === "grp"
+            ? <div key={"g" + i} style={{ height: rhG, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", borderBottom: `1px solid ${C.line}`, background: r.g.act.soft, overflow: "hidden", boxSizing: "border-box" }}>
+                {!forExport && !summaryOnly && <button onClick={() => setClosed((s) => ({ ...s, [r.g.act.key]: !s[r.g.act.key] }))} style={{ ...iconBtn, padding: 2, color: r.g.act.color, transform: closed[r.g.act.key] ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={14} /></button>}
+                <span style={{ color: r.g.act.color, flexShrink: 0, display: "grid", placeItems: "center" }}><Ic name={r.g.act.icon} size={forExport ? 13 : 15} /></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: forExport ? 12 : 13, fontWeight: 800, color: r.g.act.color, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.g.act.label}</div>
+                  <div style={{ fontSize: forExport ? 9.5 : 10.5, color: C.slate, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(r.g.start)} → {fmtDate(r.g.finish)} · {r.g.parents.length} pekerjaan</div>
+                </div>
+                <span style={{ fontSize: forExport ? 11 : 12, fontWeight: 800, color: r.g.act.color, fontVariantNumeric: "tabular-nums" }}>{r.g.pct}%</span>
+              </div>
+            : <div key={"t" + i} style={{ height: rhT, display: "flex", alignItems: "center", gap: 6, padding: "0 10px 0 30px", borderBottom: `1px solid ${C.line}`, background: "#fff", overflow: "hidden", boxSizing: "border-box" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: forExport ? 10.5 : 12.5, fontWeight: 600, lineHeight: 1.25, color: r.t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: r.t.status === STATUS.cancel ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.t.name}</div>
+                  <div style={{ fontSize: forExport ? 9 : 10, color: C.slate, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(r.t.start)} → {fmtDate(r.t.finish)}</div>
+                </div>
+                <span style={{ width: 6, height: 6, borderRadius: 99, background: (SMETA[r.t.status] || SMETA[STATUS.todo]).bar, flexShrink: 0 }} />
+                <span style={{ fontSize: forExport ? 10 : 11.5, fontWeight: 700, color: r.t.percent >= 100 ? C.green : C.slate, fontVariantNumeric: "tabular-nums", minWidth: 28, textAlign: "right" }}>{r.t.percent}%</span>
+              </div>)}
+        </div>
+
+        <div style={{ position: "relative", width: W, flexShrink: 0 }} onMouseLeave={() => setTip(null)}>
+          <div style={{ height: hMon, background: C.bg, position: "relative", borderBottom: `1px solid ${C.line}` }}>
+            {months.map((m, i) => <div key={i} style={{ position: "absolute", left: m.left, width: m.width, top: 0, height: hMon, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: C.ink, overflow: "hidden", whiteSpace: "nowrap" }}>{m.width > 40 ? m.label : ""}</div>)}
+          </div>
+          <div style={{ height: hWk, background: "#fff", position: "relative", borderBottom: `1px solid ${C.line}` }}>
+            {weeks.map((k, i) => <div key={i} onMouseEnter={() => !forExport && setTip({ left: k.left + wpx / 2, text: wkText(k) })} title={wkText(k)}
+              style={{ position: "absolute", left: k.left, width: wpx, top: 0, height: hWk, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8.5, fontWeight: 700, color: C.slate, cursor: forExport ? "default" : "help" }}>{k.wk}</div>)}
+          </div>
+          <div style={{ position: "absolute", left: 0, top: hh, width: W, height: bodyH, pointerEvents: "none", zIndex: 0 }}>
+            {weeks.map((k, i) => <div key={i} style={{ position: "absolute", left: k.left, top: 0, bottom: 0, width: 1, background: C.line }} />)}
+          </div>
+          <div title={`Hari ini · ${tglPanjang()}`} style={{ position: "absolute", left: todayX, top: hMon, height: bodyH + hWk, width: 2, background: C.amber, zIndex: 2 }} />
+          <div style={{ position: "absolute", left: todayX, top: hMon + 1, transform: "translateX(-50%)", background: C.amber, color: "#fff", fontSize: 8.5, fontWeight: 800, borderRadius: 4, padding: "1px 5px", zIndex: 3, whiteSpace: "nowrap", pointerEvents: "none" }}>HARI INI</div>
+
+          {rows.map((r, i) => {
+            if (r.kind === "grp") {
+              const a = r.g.act;
+              return <div key={"gb" + i} style={{ height: rhG, borderBottom: `1px solid ${C.line}`, position: "relative", background: a.soft + "80" }}>
+                {r.g.start && <div title={`${a.label} · ${fmtDate(r.g.start)} → ${fmtDate(r.g.finish)} · ${r.g.pct}%`}
+                  style={{ position: "absolute", left: xOf(r.g.start), width: Math.max(8, wOf(r.g.start, r.g.finish)), top: (rhG - 16) / 2, height: 16, borderRadius: 5, background: "#fff", border: `1.5px solid ${a.color}`, overflow: "hidden", zIndex: 1 }}>
+                  <div style={{ width: `${Math.min(100, r.g.pct)}%`, height: "100%", background: a.color, opacity: .85 }} />
+                </div>}
+              </div>;
+            }
+            const m = SMETA[r.t.status] || SMETA[STATUS.todo];
+            const canceled = r.t.status === STATUS.cancel;
+            return <div key={"tb" + i} style={{ height: rhT, borderBottom: `1px solid ${C.line}`, position: "relative", background: "#fff" }}>
+              <div title={`${r.t.name} · ${fmtDate(r.t.start)} → ${fmtDate(r.t.finish)} · ${r.t.percent}% · ${r.t.status}`}
+                style={{ position: "absolute", left: xOf(r.t.start), width: Math.max(6, wOf(r.t.start, r.t.finish)), top: (rhT - 13) / 2, height: 13, borderRadius: 4, background: canceled ? "#FDECEF" : m.bar + "26", border: `1px ${canceled ? "dashed" : "solid"} ${m.bar}`, overflow: "hidden", zIndex: 1, opacity: canceled ? .75 : 1 }}>
+                {!canceled && <div style={{ width: `${Math.min(100, r.t.percent)}%`, height: "100%", background: m.bar, opacity: .85 }} />}
+              </div>
+            </div>;
+          })}
+          {tip && !forExport && <div style={{ position: "absolute", left: tip.left, top: hh + 4, transform: "translateX(-50%)", background: C.ink, color: "#fff", fontSize: 10.5, fontWeight: 600, padding: "5px 9px", borderRadius: 7, whiteSpace: "nowrap", pointerEvents: "none", zIndex: 9, boxShadow: "0 6px 18px rgba(19,41,61,.28)" }}>{tip.text}</div>}
+        </div>
+      </div>
+    </div>
+    {!forExport && <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10, fontSize: 11.5, color: C.slate, alignItems: "center" }}>
+      {ACTS.map((a) => <span key={a.key} style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 8, borderRadius: 3, background: "#fff", border: `1.5px solid ${a.color}` }} /> {a.label}</span>)}
+      <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 2, height: 12, background: C.amber }} /> Hari ini</span>
+      <span style={{ marginLeft: "auto" }}>Hanya pekerjaan induk · sub pekerjaan tidak ditampilkan</span>
     </div>}
   </div>;
 }
@@ -1178,7 +1299,7 @@ function Arsip({ docs, setDocs, log }) {
     const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
     setErr("");
     if (file.type !== "application/pdf") { setErr("Hanya file PDF yang didukung."); return; }
-    if (file.size > 40 * 1048576) { setErr(`Ukuran ${mb(file.size)} melebihi batas 10 MB.`); return; }
+    if (file.size > 40 * 1048576) { setErr(`Ukuran ${mb(file.size)} melebihi batas 40 MB.`); return; }
     setPending({ file, name: file.name.replace(/\.pdf$/i, "") });
   };
   const commit = async () => {
@@ -1879,6 +2000,7 @@ function App() {
   const [logs, setLogs] = useState([]);
   const [exportAct, setExportAct] = useState(null);
   const [diag, setDiag] = useState(false);
+  const [msSummary, setMsSummary] = useState(false);
   const syncSt = useSyncState();
   const ganttRef = useRef(null);
   const scWrapRef = useRef(null);
@@ -1942,8 +2064,8 @@ function App() {
         const maxW = 1500, k = Math.min(1, maxW / canvas.width);
         const out = document.createElement("canvas"); out.width = Math.round(canvas.width * k); out.height = Math.round(canvas.height * k);
         const ctx = out.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, out.width, out.height); ctx.imageSmoothingQuality = "high"; ctx.drawImage(canvas, 0, 0, out.width, out.height);
-        const a = document.createElement("a"); a.href = out.toDataURL("image/png"); a.download = `Gantt-${actOf(exportAct).label}.png`; a.click();
-        log("Unduh PNG", `Gantt ${actOf(exportAct).label}`);
+        const a = document.createElement("a"); a.href = out.toDataURL("image/png"); a.download = exportAct === "__master__" ? "Master-Gantt-3-Kegiatan.png" : `Gantt-${actOf(exportAct).label}.png`; a.click();
+        log("Unduh PNG", exportAct === "__master__" ? "Master Gantt 3 kegiatan" : `Gantt ${actOf(exportAct).label}`);
         setExportAct(null);
       }).catch(() => { setExportAct(null); alert("Gagal membuat PNG."); });
     }, 120);
@@ -2121,6 +2243,20 @@ function App() {
           </Card>
 
           <Card>
+            <CardHead icon="calendar" title="Master Schedule — Gantt 3 Kegiatan" right={
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <button onClick={() => setMsSummary((v) => !v)} title="Tampilkan hanya 1 baris ringkasan per kegiatan"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 9, border: `1px solid ${msSummary ? C.violet : C.line}`, background: msSummary ? C.violetSoft : "#fff", color: msSummary ? C.violet : C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                  <Ic name={msSummary ? "check" : "kanban"} size={14} /> Ringkas
+                </button>
+                <Btn kind="ghost" size="sm" onClick={() => setExportAct("__master__")} disabled={exportAct === "__master__"}>
+                  <Ic name="download" size={15} /> {exportAct === "__master__" ? "Menyiapkan…" : "Unduh PNG"}
+                </Btn>
+              </div>} />
+            <MasterGantt tasks={tasks} statusDate={PROJECT.statusDate} summaryOnly={msSummary} />
+          </Card>
+
+          <Card>
             <CardHead icon="trending" title="S-Curve — Kontraktor · Konsultan · Transisi · Total" right={<div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div style={{ display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>{SERIES.map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 6, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}</div><Btn kind="ghost" size="sm" onClick={exportSCurvePNG}><Ic name="download" size={15} /> Unduh PNG</Btn></div>} />
             <div ref={scWrapRef} style={{ minWidth: 0 }}><SCurveChart data={sc} today={scToday} /></div>
           </Card>
@@ -2141,8 +2277,10 @@ function App() {
     {exportAct && <div style={{ position: "fixed", left: -99999, top: 0, zIndex: -1 }}>
       <div ref={ganttRef} style={{ background: "#fff", padding: 18, display: "inline-block" }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: C.ink, fontFamily: "Inter, sans-serif" }}>{PROJECT.name}</div>
-        <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 12, fontFamily: "Inter, sans-serif" }}>Gantt Chart — Kegiatan {actOf(exportAct).label} · status per {fmtDate(PROJECT.statusDate)}</div>
-        <Gantt tasks={tasks} act={exportAct} statusDate={PROJECT.statusDate} editable={false} forExport />
+        <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 12, fontFamily: "Inter, sans-serif" }}>{exportAct === "__master__" ? `Master Schedule — Konsultan · Kontraktor · Transisi (pekerjaan induk) · status per ${fmtDate(PROJECT.statusDate)}` : `Gantt Chart — Kegiatan ${actOf(exportAct).label} · status per ${fmtDate(PROJECT.statusDate)}`}</div>
+        {exportAct === "__master__"
+          ? <MasterGantt tasks={tasks} statusDate={PROJECT.statusDate} summaryOnly={msSummary} forExport />
+          : <Gantt tasks={tasks} act={exportAct} statusDate={PROJECT.statusDate} editable={false} forExport />}
       </div>
     </div>}
   </div>;
