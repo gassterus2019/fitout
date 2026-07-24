@@ -324,8 +324,8 @@ const SEED_PUNCH = [
   { id: uid(), act: "konsultan", title: "Revisi tata letak ruang rapat", stage: "Pengembangan Desain", loc: "Lt.22", severity: "Sedang", status: PST.done, due: "2026-07-04", note: "Sudah disetujui owner.", photo: null, proofUrl: null, proofName: null },
 ];
 const SEED_USERS = [
-  { id: uid(), name: "Project Manager", email: "pm@mrt.co.id", role: ROLE.pm, active: true },
-  { id: uid(), name: "Admin Proyek", email: "admin@mrt.co.id", role: ROLE.admin, active: true },
+  { id: uid(), name: "Project Manager", username: "pm", email: "pm@mrt.co.id", role: ROLE.pm, active: true },
+  { id: uid(), name: "Admin Proyek", username: "admin", email: "admin@mrt.co.id", role: ROLE.admin, active: true },
 ];
 const SEED_MYTASKS = [
   { id: uid(), owner: "pm@mrt.co.id", text: "Review gambar kerja Lt.21", done: false, status: MST.doing, prio: "Tinggi", due: "2026-07-28" },
@@ -358,19 +358,21 @@ const sbSignup = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
    Catatan: menghapus akun Auth secara permanen butuh service_role, jadi
    penghapusan dari portal = mencabut akses (baris app_users dihapus),
    dan login user tersebut akan ditolak oleh gerbang akses di App. */
+/* Portal memakai USERNAME, bukan email. Username dipetakan ke alamat semu
+   "<username>@mrt-portal.local" hanya untuk sistem autentikasi Supabase —
+   user tidak pernah melihat atau perlu mengisi email. */
+const PORTAL_DOMAIN = "mrt-portal.local";
+const toAuthEmail = (u) => { const v = (u || "").trim().toLowerCase(); return v.indexOf("@") >= 0 ? v : v + "@" + PORTAL_DOMAIN; };
+const fromAuthEmail = (e) => { const v = (e || "").toLowerCase(); return v.indexOf("@" + PORTAL_DOMAIN) > 0 ? v.split("@")[0] : v; };
+const uname = (u) => (u && u.username) ? u.username : fromAuthEmail(u && u.email);
+
 async function portalCreateUser(email, password) {
   if (!LIVE) return { created: true, demo: true };
-  const { data, error } = await sbSignup.auth.signUp({ email: email.trim().toLowerCase(), password });
+  const { data, error } = await sbSignup.auth.signUp({ email: toAuthEmail(email), password });
   if (error) throw new Error(error.message);
   const u = data && data.user;
   if (u && Array.isArray(u.identities) && u.identities.length === 0) return { created: false, exists: true };
   return { created: true, needConfirm: !!(u && !data.session) };
-}
-async function portalResetPassword(email) {
-  if (!LIVE) return true;
-  const { error } = await sb.auth.resetPasswordForEmail((email || "").trim().toLowerCase(), { redirectTo: window.location.href });
-  if (error) throw new Error(error.message);
-  return true;
 }
 
 /* --- pemetaan field aplikasi <-> kolom DB --- */
@@ -389,8 +391,8 @@ const actToRow = (a) => ({ id: a.id, key: a.key, label: a.label, color: a.color,
 const actFromRow = (r) => ({ id: r.id, key: r.key, label: r.label, color: r.color || C.blue, soft: r.soft || C.blueSoft, icon: r.icon || "kanban", builtin: !!r.builtin });
 const acostToRow = (r) => ({ id: r.id, act: r.act, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
 const acostFromRow = (r) => ({ id: r.id, act: r.act, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start: r.start_date, finish: r.finish_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
-const userToRow = (u) => ({ id: u.id, name: u.name, email: (u.email || "").toLowerCase(), role: u.role, active: !!u.active });
-const userFromRow = (r) => ({ id: r.id, name: r.name, email: r.email || "", role: r.role || ROLE.admin, active: r.active !== false });
+const userToRow = (u) => ({ id: u.id, name: u.name, username: (u.username || fromAuthEmail(u.email) || "").toLowerCase(), email: (u.email || "").toLowerCase(), role: u.role, active: !!u.active });
+const userFromRow = (r) => ({ id: r.id, name: r.name, username: r.username || fromAuthEmail(r.email), email: r.email || "", role: r.role || ROLE.admin, active: r.active !== false });
 const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done, status: t.status || (t.done ? MST.done : MST.todo), prio: t.prio || "Sedang", due_date: t.due || null, note: t.note || null });
 const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done, status: r.status || (r.done ? MST.done : MST.todo), prio: r.prio || "Sedang", due: r.due_date || "", note: r.note || "" });
 const logToRow = (l) => ({ id: l.id, ts: l.ts, actor: l.actor, action: l.action, detail: l.detail || null });
@@ -657,11 +659,11 @@ function Login({ onLogin, live }) {
   const submit = async () => {
     setErr("");
     if (live) {
-      if (!u.trim() || !p) { setErr("Email dan password wajib diisi."); return; }
+      if (!u.trim() || !p) { setErr("Username dan password wajib diisi."); return; }
       setBusy(true);
       try {
-        const { error } = await sb.auth.signInWithPassword({ email: u.trim(), password: p });
-        if (error) { setErr(error.message || "Gagal masuk."); setBusy(false); }
+        const { error } = await sb.auth.signInWithPassword({ email: toAuthEmail(u), password: p });
+        if (error) { setErr(/invalid/i.test(error.message || "") ? "Username atau password salah." : (error.message || "Gagal masuk.")); setBusy(false); }
       } catch (e) { setErr("Gagal terhubung ke server."); setBusy(false); }
     } else {
       const f = USERS.find((x) => x.u === u.trim() && x.p === p);
@@ -677,9 +679,9 @@ function Login({ onLogin, live }) {
       <div style={{ background: "#fff", borderRadius: 18, padding: 26, boxShadow: "0 20px 50px rgba(10,108,184,.14)" }}>
         <div style={{ fontWeight: 700, fontSize: 19, color: C.ink }}>Selamat datang</div>
         <div style={{ fontSize: 13, color: C.slate, marginBottom: 12, marginTop: 2 }}>{live ? "Masuk dengan email & password." : "Masuk dengan akun demo di bawah."}</div>
-        <Field label={live ? "Email" : "Username"}><Input type={live ? "email" : "text"} value={u} onChange={(e) => setU(e.target.value)} placeholder={live ? "nama@perusahaan.com" : "pm / admin"} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+        <Field label="Username" req><Input type="text" value={u} onChange={(e) => setU(e.target.value)} placeholder={live ? "mis. budi.santoso" : "pm / admin"} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
         <div style={{ height: 12 }} />
-        <Field label="Password"><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+        <Field label="Password" req><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
         {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
         <Btn onClick={submit} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : "Masuk"} {!busy && <Ic name="arrow" size={16} />}</Btn>
         {!live && <div className="g2" style={{ marginTop: 14 }}>
@@ -729,6 +731,18 @@ function progressOf(tasks, act) {
 
 /* ===== PENJADWALAN: predecessor, penyelesaian aktual, prediksi selesai ===== */
 const effFinish = (t) => t.actualFinish || t.finish;
+/* pekerjaan dianggap TERLAMBAT bila: selesai aktual melewati rencana, atau
+   tanggal rencana sudah lewat tetapi progres belum 100% */
+function isLate(t) {
+  if (!t || t.status === STATUS.cancel) return false;
+  if (t.actualFinish) return D(t.actualFinish) > D(t.finish);
+  return (Number(t.percent) || 0) < 100 && D(t.finish) < todayNoon();
+}
+function lateInfo(t) {
+  if (!isLate(t)) return null;
+  const ref = t.actualFinish ? D(t.actualFinish) : todayNoon();
+  return { hari: days(D(t.finish), ref), aktual: !!t.actualFinish };
+}
 const lateDays = (t) => (t.actualFinish ? days(D(t.finish), D(t.actualFinish)) : 0);
 /* daftar penerus (successor) = kebalikan predecessor */
 const succOf = (tasks, id) => tasks.filter((t) => (t.pred || []).indexOf(id) >= 0);
@@ -847,8 +861,6 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
   const A2 = actOf(act);
   useEffect(() => { setInfo(null); }, [act, rows.length]);
   const todayX = xOf(iso(todayNoon()));
-  const statusX = xOf(statusDate);
-  const showStatus = iso(D(statusDate)) !== iso(todayNoon());
   const bodyH = rows.length * rh;
   const rowTop = (id) => hh + Math.max(0, rows.findIndex((r) => r.id === id)) * rh;
   const outer = forExport ? { width: leftW + W } : {};
@@ -900,7 +912,6 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
           <div style={{ position: "absolute", left: 0, top: hh, width: W, height: bodyH, pointerEvents: "none", zIndex: 0 }}>
             {weeks.map((k, i) => <div key={i} style={{ position: "absolute", left: k.left, top: 0, bottom: 0, width: 1, background: C.line }} />)}
           </div>
-          {showStatus && <div title={`Tanggal status · ${fmtDate(statusDate)}`} style={{ position: "absolute", left: statusX, top: hh, height: bodyH, width: 2, background: C.blue, opacity: .35, zIndex: 1 }} />}
           <div title={`Hari ini · ${tglPanjang()}`} style={{ position: "absolute", left: todayX, top: hMon, height: bodyH + hWk, width: 2, background: C.amber, zIndex: 2 }} />
           <div style={{ position: "absolute", left: todayX, top: hMon + 1, transform: "translateX(-50%)", background: C.amber, color: "#fff", fontSize: 8.5, fontWeight: 800, borderRadius: 4, padding: "1px 5px", zIndex: 3, whiteSpace: "nowrap", pointerEvents: "none" }}>HARI INI</div>
 
@@ -918,6 +929,7 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
                 style={{ position: "absolute", left: xOf(t.start), width: Math.max(6, wOf(t.start, t.finish)), top: isP ? (rh - 12) / 2 : (rh - 18) / 2, height: isP ? 12 : 18, borderRadius: isP ? 4 : 6, background: canceled ? "#FDECEF" : col + (isP ? "" : "26"), border: `1px ${canceled ? "dashed" : "solid"} ${col}`, cursor: editable && !isP && !forExport ? "grab" : "default", overflow: "hidden", zIndex: 1, opacity: canceled ? .75 : 1 }}>
                 {!isP && !canceled && <div style={{ width: `${Math.min(100, t.percent)}%`, height: "100%", background: col, opacity: .85 }} />}
               </div>
+              {isLate(t) && <span title={`Terlambat ${lateInfo(t).hari} hari`} style={{ position: "absolute", left: xOf(t.start) + Math.max(6, wOf(t.start, t.finish)) + 5, top: (rh - 15) / 2, color: C.red, zIndex: 2, display: "grid", placeItems: "center" }}><Ic name="alert" size={13} /></span>}
               {editable && !forExport && !isP && <div onMouseDown={(e) => { e.stopPropagation(); setDrag({ id: t.id, mode: "resize", startX: e.clientX, start: t.start, finish: t.finish }); }} style={{ position: "absolute", left: xOf(t.start) + Math.max(6, wOf(t.start, t.finish)) - 5, top: (rh - 18) / 2, width: 10, height: 18, cursor: "ew-resize", zIndex: 2 }} />}
             </div>;
           })}
@@ -1760,10 +1772,15 @@ function PunchReport({ punch, stage, loc, onClose }) {
   const tdC = { border: "1px solid #9AA7B4", padding: "7px 8px", fontSize: 11.5, color: "#1F2D3D", verticalAlign: "top" };
   const thC = { border: "1px solid #9AA7B4", padding: "7px 8px", fontSize: 11, fontWeight: 700, color: "#13293D", background: "#EEF3F8", textAlign: "center" };
   const info = (l, v) => <tr><td style={{ padding: "2px 0", fontSize: 12, color: "#6B7A8D", width: 130, verticalAlign: "top" }}>{l}</td><td style={{ padding: "2px 6px", fontSize: 12, color: "#6B7A8D", verticalAlign: "top" }}>:</td><td style={{ padding: "2px 0", fontSize: 12.5, fontWeight: 600, color: "#13293D" }}>{v}</td></tr>;
-  const signCol = (line1, role) => <div className="sign-block" style={{ flex: 1, textAlign: "center", fontSize: 12.5, color: "#13293D" }}>
-    <div>{line1}</div><div style={{ height: 74 }} />
-    <div style={{ borderTop: "1px solid #13293D", width: "78%", margin: "0 auto", paddingTop: 6, fontWeight: 700 }}>(&nbsp;.................................&nbsp;)</div>
-    <div style={{ fontWeight: 700, marginTop: 3 }}>{role}</div>
+  const signCol = (peran, unit) => <div className="sign-block" style={{ flex: 1, textAlign: "center", fontSize: 12.5, color: "#13293D", padding: "0 6px" }}>
+    <div style={{ fontWeight: 600 }}>{peran}</div>
+    <div style={{ fontWeight: 700, marginTop: 2 }}>{unit}</div>
+    <div style={{ height: 76 }} />
+    <div style={{ borderTop: "1px solid #13293D", width: "88%", margin: "0 auto" }} />
+  </div>;
+  const box = (label) => <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+    <span style={{ width: 10, height: 10, border: "1px solid #13293D", display: "inline-block", flexShrink: 0 }} />
+    <span style={{ fontSize: 9.5, whiteSpace: "nowrap" }}>{label}</span>
   </div>;
   return <div className="print-doc" style={{ position: "fixed", inset: 0, background: "#E2E8EF", zIndex: 130, overflow: "auto", padding: "22px 14px" }}>
     <div className="no-print" style={{ maxWidth: 820, margin: "0 auto 14px", display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -1778,7 +1795,6 @@ function PunchReport({ punch, stage, loc, onClose }) {
         <Logo size={44} radius={9} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: .2 }}>LAPORAN PUNCHLIST</div>
-          <div style={{ fontSize: 12.5, color: "#6B7A8D" }}>{PROJECT.name} · {PROJECT.sub}</div>
         </div>
       </div>
       <table style={{ marginTop: 14, borderCollapse: "collapse" }}><tbody>
@@ -1790,7 +1806,7 @@ function PunchReport({ punch, stage, loc, onClose }) {
       <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
         <thead><tr>
           <th style={{ ...thC, width: 34 }}>No.</th><th style={{ ...thC, width: "26%" }}>Nama Temuan</th>
-          <th style={{ ...thC, width: "18%" }}>Lokasi</th><th style={{ ...thC, width: 108 }}>Gambar</th><th style={thC}>Keterangan</th>
+          <th style={{ ...thC, width: "16%" }}>Lokasi</th><th style={{ ...thC, width: 100 }}>Gambar</th><th style={thC}>Keterangan</th><th style={{ ...thC, width: 96 }}>Status</th>
         </tr></thead>
         <tbody>
           {rows.map((p, i) => <tr key={p.id}>
@@ -1799,15 +1815,17 @@ function PunchReport({ punch, stage, loc, onClose }) {
             <td style={tdC}>{p.loc || "-"}</td>
             <td style={{ ...tdC, textAlign: "center" }}>{p.photo ? <img src={p.photo} alt="" style={{ width: 96, height: 72, objectFit: "cover", border: "1px solid #9AA7B4" }} /> : <span style={{ fontSize: 10.5, color: "#6B7A8D" }}>tidak ada</span>}</td>
             <td style={tdC}>{p.note || "-"}<div style={{ fontSize: 10.5, color: "#6B7A8D", marginTop: 3 }}>Target: {fmtDate(p.due)}</div></td>
+            <td style={tdC}>{box("Sudah Selesai")}{box("Belum Selesai")}{box("Dibatalkan")}</td>
           </tr>)}
-          {rows.length === 0 && <tr><td colSpan={5} style={{ ...tdC, textAlign: "center", color: "#6B7A8D" }}>Tidak ada temuan pada tahapan ini.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={6} style={{ ...tdC, textAlign: "center", color: "#6B7A8D" }}>Tidak ada temuan pada tahapan ini.</td></tr>}
         </tbody>
       </table>
       <div className="sign-block" style={{ marginTop: 26 }}>
         <div style={{ textAlign: "right", fontSize: 12.5, marginBottom: 12 }}>Jakarta, {tglPanjang()}</div>
-        <div style={{ display: "flex", gap: 24 }}>
-          {signCol("Disiapkan oleh,", "Departemen General Affairs")}
-          {signCol("Mengetahui,", "Pihak Kontraktor")}
+        <div style={{ display: "flex", gap: 16 }}>
+          {signCol("Disiapkan oleh", "Konsultan")}
+          {signCol("Ditinjau oleh", "General Affairs Department")}
+          {signCol("Diketahui oleh", "Kontraktor")}
         </div>
       </div>
     </div>
@@ -2208,64 +2226,88 @@ function MyTaskView({ task, owner, onClose }) {
 /* ===== MANAJEMEN USER (khusus Project Management) ===== */
 function UserModal({ item, existing, onSave, onClose }) {
   const isNew = !item;
-  const [f, setF] = useState(item || { name: "", email: "", role: ROLE.admin, active: true });
+  const [f, setF] = useState(item || { name: "", username: "", role: ROLE.admin, active: true });
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [info, setInfo] = useState("");
+  const [hint, setHint] = useState("");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const save = async () => {
-    setErr(""); setInfo("");
-    const email = (f.email || "").trim().toLowerCase();
-    if (!f.name.trim() || !email) { setErr("Nama dan email wajib diisi."); return; }
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setErr("Format email tidak valid."); return; }
-    if (isNew && existing.some((u) => (u.email || "").toLowerCase() === email)) { setErr("Email ini sudah terdaftar di portal."); return; }
+    setErr(""); setHint("");
+    const un = (f.username || "").trim().toLowerCase();
+    if (!f.name.trim()) { setErr("Nama karyawan wajib diisi."); return; }
+    if (!un) { setErr("Username wajib diisi."); return; }
+    if (!/^[a-z0-9._-]{3,24}$/.test(un)) { setErr("Username 3–24 karakter, hanya huruf kecil, angka, titik, garis bawah, atau strip."); return; }
+    if (isNew && existing.some((u) => uname(u) === un)) { setErr("Username sudah dipakai."); return; }
     if (isNew) {
       if (pw.length < 8) { setErr("Password minimal 8 karakter."); return; }
       if (pw !== pw2) { setErr("Konfirmasi password tidak sama."); return; }
       setBusy(true);
       try {
-        const r = await portalCreateUser(email, pw);
-        if (r.exists) { setErr("Email sudah punya akun login di Supabase. Tetap bisa ditambahkan ke portal — kosongkan lalu simpan sebagai user lama."); setBusy(false); return; }
-        onSave({ ...f, email }, r.needConfirm ? "Akun dibuat. Supabase meminta konfirmasi email sebelum user bisa login." : "");
+        const r = await portalCreateUser(un, pw);
+        if (r.exists) {
+          setErr("Username ini pernah dibuat sebelumnya. Klik “Pulihkan Akses” untuk mengaktifkannya kembali dengan password lamanya.");
+          setHint("restore"); setBusy(false); return;
+        }
+        if (r.needConfirm) {
+          setErr("Akun belum aktif karena Supabase masih meminta verifikasi email. Buka Supabase → Authentication → Sign In / Providers → Email, matikan “Confirm email”, simpan, lalu buat ulang user ini.");
+          setBusy(false); return;
+        }
+        onSave({ ...f, username: un, email: toAuthEmail(un) }, `User ${f.name} dibuat. Beri tahu username “${un}” dan password awalnya.`);
       } catch (e) { setErr(e.message || "Gagal membuat akun."); setBusy(false); }
-    } else onSave({ ...f, email }, "");
+    } else onSave({ ...f, username: un, email: f.email || toAuthEmail(un) }, "");
   };
-  const doReset = async () => {
-    setErr(""); setInfo(""); setBusy(true);
-    try { await portalResetPassword(f.email); setInfo("Tautan atur ulang password sudah dikirim ke " + f.email + "."); }
-    catch (e) { setErr(e.message || "Gagal mengirim tautan."); }
-    setBusy(false);
+  const restore = () => {
+    const un = (f.username || "").trim().toLowerCase();
+    onSave({ ...f, username: un, email: toAuthEmail(un) }, `Akses ${f.name} dipulihkan. Password lamanya masih berlaku.`);
   };
-  return <Modal title={isNew ? "Tambah User Baru" : "Edit User"} onClose={onClose} width={500}>
+  return <Modal title={isNew ? "Tambah User" : "Edit User"} onClose={onClose} width={470}>
     <ReqNote />
-    <Field label="Nama lengkap" req><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
-    <div style={{ marginTop: 12 }}><Field label="Email (dipakai untuk login)" req>
-      <Input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} disabled={!isNew} placeholder="nama@perusahaan.com" />
-    </Field>{!isNew && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Email tidak bisa diubah karena terikat ke akun login.</div>}</div>
-    {isNew && <div className="g2" style={{ marginTop: 12 }}>
-      <Field label="Password awal (min. 8 karakter)" req><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" /></Field>
-      <Field label="Ulangi password" req><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="••••••••" /></Field>
-    </div>}
-    <div className="g2" style={{ marginTop: 12 }}>
-      <Field label="Role"><Sel value={f.role} onChange={(e) => set("role", e.target.value)}>{[ROLE.pm, ROLE.admin].map((r) => <option key={r}>{r}</option>)}</Sel></Field>
-      <Field label="Status akses"><Sel value={f.active ? "Aktif" : "Nonaktif"} onChange={(e) => set("active", e.target.value === "Aktif")}><option>Aktif</option><option>Nonaktif</option></Sel></Field>
+    <Field label="Nama Karyawan" req><Input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Username" req>
+      <Input value={f.username || ""} onChange={(e) => set("username", e.target.value.toLowerCase())} disabled={!isNew} placeholder="mis. budi.santoso" />
+    </Field>{!isNew && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Username tidak bisa diubah karena terikat ke akun login.</div>}</div>
+    {isNew && <>
+      <div style={{ marginTop: 12 }}><Field label="Password" req><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="minimal 8 karakter" /></Field></div>
+      <div style={{ marginTop: 12 }}><Field label="Konfirmasi Password" req><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="ulangi password" onKeyDown={(e) => e.key === "Enter" && save()} /></Field></div>
+    </>}
+    <div className={isNew ? "" : "g2"} style={{ marginTop: 12 }}>
+      <Field label="Role" req><Sel value={f.role} onChange={(e) => set("role", e.target.value)}>{[ROLE.pm, ROLE.admin].map((r) => <option key={r}>{r}</option>)}</Sel></Field>
+      {!isNew && <Field label="Status akses"><Sel value={f.active ? "Aktif" : "Nonaktif"} onChange={(e) => set("active", e.target.value === "Aktif")}><option>Aktif</option><option>Nonaktif</option></Sel></Field>}
     </div>
     <div style={{ marginTop: 12, fontSize: 12, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
-      {isNew
-        ? "Akun login dibuat langsung dari portal ini — tidak perlu membuka Supabase. Beri tahu user email & password awalnya, lalu minta ia menggantinya."
-        : "Role “Nonaktif” langsung memblokir user tersebut masuk ke portal pada login berikutnya."}
+      {isNew ? "Akun dibuat sepenuhnya dari portal ini — tanpa email, tanpa verifikasi. User cukup login memakai username dan password di atas."
+             : "Status “Nonaktif” langsung memblokir user ini masuk portal pada percobaan login berikutnya."}
     </div>
+    {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, lineHeight: 1.5 }}>{err}</div>}
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
+      <Btn kind="ghost" onClick={onClose}>Batal</Btn>
+      {hint === "restore" && <Btn kind="green" onClick={restore}>Pulihkan Akses</Btn>}
+      <Btn onClick={save} disabled={busy} style={{ opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : (isNew ? "Buat User" : "Simpan")}</Btn>
+    </div>
+  </Modal>;
+}
+/* ganti password sendiri (Supabase hanya mengizinkan user mengubah password miliknya) */
+function PasswordModal({ onClose, log }) {
+  const [a, setA] = useState(""), [b, setB] = useState(""), [err, setErr] = useState(""), [ok, setOk] = useState(""), [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setErr(""); setOk("");
+    if (a.length < 8) { setErr("Password baru minimal 8 karakter."); return; }
+    if (a !== b) { setErr("Konfirmasi password tidak sama."); return; }
+    if (!LIVE) { setOk("Mode DEMO — perubahan password tidak disimpan."); return; }
+    setBusy(true);
+    try { const { error } = await sb.auth.updateUser({ password: a }); if (error) throw error; setOk("Password berhasil diubah."); log && log("Ubah password", "akun sendiri"); }
+    catch (e) { setErr(e.message || "Gagal mengubah password."); }
+    setBusy(false);
+  };
+  return <Modal title="Ubah Password" onClose={onClose} width={420}>
+    <ReqNote />
+    <Field label="Password baru" req><Input type="password" value={a} onChange={(e) => setA(e.target.value)} placeholder="minimal 8 karakter" /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Konfirmasi password baru" req><Input type="password" value={b} onChange={(e) => setB(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field></div>
     {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
-    {info && <div style={{ color: C.green, fontSize: 12.5, marginTop: 10 }}>{info}</div>}
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
-      {!isNew && LIVE ? <Btn kind="ghost" onClick={doReset} disabled={busy}><Ic name="key" size={15} /> Kirim reset password</Btn> : <span />}
-      <div style={{ display: "flex", gap: 8 }}>
-        <Btn kind="ghost" onClick={onClose}>Batal</Btn>
-        <Btn onClick={save} disabled={busy} style={{ opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : (isNew ? "Buat Akun" : "Simpan")}</Btn>
-      </div>
-    </div>
+    {ok && <div style={{ color: C.green, fontSize: 12.5, marginTop: 10 }}>{ok}</div>}
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Tutup</Btn><Btn onClick={submit} disabled={busy}>{busy ? "Menyimpan…" : "Simpan"}</Btn></div>
   </Modal>;
 }
 function UsersPage({ users, setUsers, mytasks, me, log }) {
@@ -2281,7 +2323,7 @@ function UsersPage({ users, setUsers, mytasks, me, log }) {
   };
   const del = (u) => {
     if (u.email === me.email) return;
-    if (!window.confirm(`Cabut akses ${u.name}? Ia tidak akan bisa masuk portal lagi.`)) return;
+    if (!window.confirm(`Cabut akses ${u.name} (${uname(u)})? Ia tidak akan bisa masuk portal lagi.`)) return;
     setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Cabut akses user", u.name);
   };
   const taskOf = (email) => mytasks.filter((t) => (t.owner || "").toLowerCase() === (email || "").toLowerCase());
@@ -2296,13 +2338,13 @@ function UsersPage({ users, setUsers, mytasks, me, log }) {
       <CardHead icon="users" title="Manajemen User" color={C.violet} right={<Btn onClick={() => setModal({})}><Ic name="userPlus" size={16} /> Tambah User</Btn>} />
       {flash && <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, color: C.ink, borderRadius: 10, padding: "10px 12px", fontSize: 12.5, marginBottom: 14 }}>{flash}</div>}
       <div style={{ fontSize: 12.5, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
-        Akun login dibuat <b>langsung dari portal ini</b> (nama, email, password, role). Menonaktifkan atau mencabut akses juga langsung berlaku di sini.
+        Akun dibuat <b>langsung dari portal ini</b>: cukup Nama Karyawan, Username, Password, dan Role. Tidak perlu email, tidak ada verifikasi, dan tidak perlu membuka Supabase.
       </div>
       <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
-        <thead><tr><th style={th}>Nama</th><th style={th}>Email</th><th style={th}>Role</th><th style={th}>Akses</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 76 }}></th></tr></thead>
+        <thead><tr><th style={th}>Nama</th><th style={th}>Username</th><th style={th}>Role</th><th style={th}>Akses</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 76 }}></th></tr></thead>
         <tbody>{users.map((u) => { const tc = taskOf(u.email); return <tr key={u.id} style={{ opacity: u.active ? 1 : .6 }}>
           <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ width: 32, height: 32, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{u.email === me.email && <div style={{ fontSize: 10.5, color: C.violet, fontWeight: 700 }}>akun Anda</div>}</div></div></td>
-          <td style={{ ...td, color: C.slate }}>{u.email}</td>
+          <td style={{ ...td, color: C.slate, fontFamily: "monospace", fontSize: 12.5 }}>{uname(u)}</td>
           <td style={td}><Pill text={u.role} color={u.role === ROLE.pm ? C.blue : C.green} bg={u.role === ROLE.pm ? C.blueSoft : C.greenSoft} /></td>
           <td style={td}><Pill text={u.active ? "Aktif" : "Nonaktif"} color={u.active ? C.green : C.red} bg={u.active ? C.greenSoft : "#FDECEF"} /></td>
           <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.slate }}>{tc.filter((t) => (t.status || MST.todo) === MST.done).length}/{tc.length}</td>
@@ -2598,13 +2640,14 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
   const pct = progressOf(tasks, act);
   const predFin = useMemo(() => predictFinish(tasks, act), [tasks, act]);
   const planFin = useMemo(() => { let mx = null; leaves.forEach((t) => { if (t.status === STATUS.cancel) return; const f = D(t.finish); if (!mx || f > mx) mx = f; }); return mx ? iso(mx) : null; }, [tasks, act]);
-  const lateN = leaves.filter((t) => lateDays(t) > 0).length;
+  const lateList = leaves.filter(isLate);
+  const lateN = lateList.length;
   const TabBtn = ({ id, icon, label }) => <button onClick={() => setTab(id)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, border: `1px solid ${tab === id ? C.violet : C.line}`, background: tab === id ? C.violetSoft : "#fff", color: tab === id ? C.violet : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer" }}><Ic name={icon} size={15} /> {label}</button>;
   return <div className="g1">
     <div className="g4">
       <Stat label="Progres Kegiatan" value={pct + "%"} sub={`${list.filter((t) => !t.parent).length} pekerjaan · ${leaves.length} item`} icon="trending" color={A2.color} />
       <Stat label="Prediksi Selesai" value={predFin ? fmtDate(predFin) : "-"} sub={planFin && predFin && predFin !== planFin ? `mundur ${days(D(planFin), D(predFin))} hari dari rencana` : "sesuai rencana"} icon="calendar" color={planFin && predFin && D(predFin) > D(planFin) ? C.red : C.green} />
-      <Stat label="Telat" value={lateN} sub="pekerjaan lewat rencana" icon="alert" color={lateN ? C.red : C.slate} />
+      <Stat label="Terlambat" value={lateN} sub={lateN ? "perlu dijadwalkan ulang" : "semua sesuai jadwal"} icon="alert" color={lateN ? C.red : C.green} />
       <Stat label={STATUS.done} value={counts[STATUS.done]} sub={`${counts[STATUS.doing]} berjalan · ${counts[STATUS.cancel]} batal`} icon="check" color={C.green} />
     </div>
     <Card>
@@ -2614,6 +2657,20 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
           {tab === "gantt" && <Btn kind="ghost" onClick={onExport} disabled={exporting}><Ic name="download" size={16} /> {exporting ? "Menyiapkan…" : "Unduh PNG"}</Btn>}
           {can.manage && <Btn onClick={() => setModal({ task: null })}><Ic name="plus" size={16} /> Tambah Pekerjaan</Btn>}
         </div>} />
+      {lateN > 0 && <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "#FDECEF", border: `1px solid ${C.red}`, borderRadius: 12, padding: "11px 14px", marginBottom: 14 }}>
+        <span style={{ color: C.red, flexShrink: 0, marginTop: 1 }}><Ic name="alert" size={17} /></span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.ink }}>{lateN} pekerjaan terlambat di kegiatan {A2.label}</div>
+          <div style={{ fontSize: 12, color: C.slate, marginTop: 3 }}>
+            {lateList.slice(0, 3).map((t) => { const li = lateInfo(t); return `${t.name} (${li.hari} hari${li.aktual ? ", aktual" : ""})`; }).join(" · ")}
+            {lateN > 3 ? ` · +${lateN - 3} lainnya` : ""}
+          </div>
+          {can.manage && <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
+            <Btn size="sm" kind="ghost" onClick={() => setView(lateList[0])}>Lihat yang terlambat</Btn>
+            <Btn size="sm" kind="ghost" onClick={reschedule}><Ic name="history" size={13} /> Jadwalkan Ulang</Btn>
+          </div>}
+        </div>
+      </div>}
       <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
         <TabBtn id="gantt" icon="calendar" label="Gantt Chart" />
         <TabBtn id="kanban" icon="kanban" label="Kanban" />
@@ -2660,6 +2717,7 @@ function App() {
   const [logs, setLogs] = useState([]);
   const [exportAct, setExportAct] = useState(null);
   const [diag, setDiag] = useState(false);
+  const [pwModal, setPwModal] = useState(false);
   const [msSummary, setMsSummary] = useState(false);
   const syncSt = useSyncState();
   const ganttRef = useRef(null);
@@ -2738,11 +2796,11 @@ function App() {
     let unsub;
     sb.auth.getSession().then(({ data }) => {
       const s = data && data.session;
-      if (s && s.user) setUser({ name: s.user.email, role: ROLE.admin, email: s.user.email, pending: true });
+      if (s && s.user) setUser({ name: fromAuthEmail(s.user.email), role: ROLE.admin, email: s.user.email, pending: true });
       setBooting(false);
     }).catch(() => setBooting(false));
     const r = sb.auth.onAuthStateChange((_e, s) => {
-      if (s && s.user) setUser((u) => (u && u.email === s.user.email ? u : { name: s.user.email, role: ROLE.admin, email: s.user.email, pending: true }));
+      if (s && s.user) setUser((u) => (u && u.email === s.user.email ? u : { name: fromAuthEmail(s.user.email), role: ROLE.admin, email: s.user.email, pending: true }));
       else { setUser(null); setReady(false); }
     });
     unsub = r && r.data && r.data.subscription;
@@ -2765,11 +2823,11 @@ function App() {
       /* GERBANG AKSES: user hanya boleh masuk bila terdaftar & aktif di
          Manajemen User. User pertama (daftar masih kosong) otomatis jadi
          Project Management supaya portal bisa di-bootstrap. */
-      if (!me && list.length === 0) { me = { id: uid(), name: email.split("@")[0], email, role: ROLE.pm, active: true }; list = [...list, me]; }
-      if (!me) { sb.auth.signOut().catch(() => {}); setDenied("Akun " + email + " belum terdaftar di portal. Minta Project Management menambahkan Anda lewat menu Manajemen User."); return; }
-      if (!me.active) { sb.auth.signOut().catch(() => {}); setDenied("Akses untuk " + email + " sedang dinonaktifkan. Hubungi Project Management."); return; }
+      if (!me && list.length === 0) { me = { id: uid(), name: fromAuthEmail(email), username: fromAuthEmail(email), email, role: ROLE.pm, active: true }; list = [...list, me]; }
+      if (!me) { sb.auth.signOut().catch(() => {}); setDenied("Username \"" + fromAuthEmail(email) + "\" belum terdaftar di portal. Minta Project Management menambahkan Anda lewat menu Manajemen User."); return; }
+      if (!me.active) { sb.auth.signOut().catch(() => {}); setDenied("Akses untuk \"" + fromAuthEmail(email) + "\" sedang dinonaktifkan. Hubungi Project Management."); return; }
       setUsers(list);
-      setUser({ name: me.name, email: me.email, role: me.role });
+      setUser({ name: me.name, email: me.email, username: uname(me), role: me.role });
       setReady(true);
     }).catch((e) => { if (alive) setLoadErr(e.message || "Gagal memuat data dari Supabase."); });
     return () => { alive = false; };
@@ -2845,8 +2903,9 @@ function App() {
       <div style={{ padding: 14, borderTop: `1px solid ${C.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 99, background: isPM ? C.blueSoft : C.greenSoft, color: isPM ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(user.name || "?")[0].toUpperCase()}</div>
-          <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div><div style={{ fontSize: 10.5, color: C.slate }}>{user.role}</div></div>
+          <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div><div style={{ fontSize: 10.5, color: C.slate }}>{user.username || fromAuthEmail(user.email)} · {user.role}</div></div>
         </div>
+        {LIVE && <button onClick={() => setPwModal(true)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600, marginBottom: 7 }}><Ic name="key" size={14} /> Ubah Password</button>}
         <button onClick={doLogout} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}><Ic name="logout" size={14} /> Keluar</button>
       </div>
     </aside>}
@@ -2882,7 +2941,6 @@ function App() {
           <div style={{ background: `linear-gradient(120deg,${C.blueSoft},${C.greenSoft})`, borderRadius: 20, padding: "22px 24px", border: `1px solid ${C.line}` }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "#fff", padding: "4px 11px", borderRadius: 99, fontSize: 11.5, fontWeight: 600, marginBottom: 14, color: C.ink, border: `1px solid ${C.line}` }}><span style={{ width: 7, height: 7, borderRadius: 99, background: C.green }} /> Status per {fmtDate(PROJECT.statusDate)}</div>
             <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -.6, color: C.ink }}>{PROJECT.name}</div>
-            <div style={{ fontSize: 13.5, color: C.slate, marginTop: 2 }}>{PROJECT.sub}</div>
             <div style={{ display: "flex", gap: 28, marginTop: 18, flexWrap: "wrap" }}>
               {[["Nilai Proyek", rpShort(proj), C.ink], ["Progres Keseluruhan", overall + "%", C.green],
                 ...acts.map((a) => [a.label, rpShort(a.key === "konsultan" ? fee : a.key === "kontraktor" ? cTotal : a.key === "transisi" ? trTotal : sumCost(acosts.filter((r) => r.act === a.key))), a.color])
@@ -2890,6 +2948,14 @@ function App() {
             </div>
           </div>
 
+          {(() => { const lt = tasks.filter((t) => !tasks.some((x) => x.parent === t.id)).filter(isLate);
+            return lt.length > 0 ? <div style={{ display: "flex", alignItems: "flex-start", gap: 10, background: "#FDECEF", border: `1px solid ${C.red}`, borderRadius: 14, padding: "12px 15px" }}>
+              <span style={{ color: C.red, flexShrink: 0, marginTop: 1 }}><Ic name="alert" size={18} /></span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink }}>{lt.length} pekerjaan terlambat</div>
+                <div style={{ fontSize: 12, color: C.slate, marginTop: 3 }}>{ACTS.map((a) => { const n = lt.filter((t) => t.act === a.key).length; return n ? `${a.label}: ${n}` : null; }).filter(Boolean).join(" · ")}</div>
+              </div>
+            </div> : null; })()}
           <div className="g4">
             <Stat label="Total Aktivitas" value={tasks.length} sub={`${tasks.filter((t) => !t.parent).length} pekerjaan utama`} icon="calendar" color={C.ink} />
             <Stat label="Punchlist Aktif" value={punchOpen} sub={`${punch.length} total temuan`} icon="clipboard" color={C.amber} />
@@ -2910,7 +2976,7 @@ function App() {
           </Card>
 
           <Card>
-            <CardHead icon="calendar" title="Master Schedule — Gantt 3 Kegiatan" right={
+            <CardHead icon="calendar" title="Master Schedule" right={
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <button onClick={() => setMsSummary((v) => !v)} title="Tampilkan hanya 1 baris ringkasan per kegiatan"
                   style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 11px", borderRadius: 9, border: `1px solid ${msSummary ? C.violet : C.line}`, background: msSummary ? C.violetSoft : "#fff", color: msSummary ? C.violet : C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
@@ -2924,7 +2990,7 @@ function App() {
           </Card>
 
           <Card>
-            <CardHead icon="trending" title={"S-Curve — " + ACTS.map((a) => a.label).join(" · ") + " · Total"} right={<div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div style={{ display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>{seriesList().map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 6, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}</div><Btn kind="ghost" size="sm" onClick={exportSCurvePNG}><Ic name="download" size={15} /> Unduh PNG</Btn></div>} />
+            <CardHead icon="trending" title="S-Curve" right={<div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div style={{ display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>{seriesList().map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 6, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}</div><Btn kind="ghost" size="sm" onClick={exportSCurvePNG}><Ic name="download" size={15} /> Unduh PNG</Btn></div>} />
             <div ref={scWrapRef} style={{ minWidth: 0 }}><SCurveChart data={sc} today={scToday} /></div>
           </Card>
         </div>}
@@ -2942,6 +3008,7 @@ function App() {
     </main>
 
     {diag && <DiagModal onClose={() => setDiag(false)} />}
+    {pwModal && <PasswordModal onClose={() => setPwModal(false)} log={log} />}
     {exportAct && <div style={{ position: "fixed", left: -99999, top: 0, zIndex: -1 }}>
       <div ref={ganttRef} style={{ background: "#fff", padding: 18, display: "inline-block" }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: C.ink, fontFamily: "Inter, sans-serif" }}>{PROJECT.name}</div>
