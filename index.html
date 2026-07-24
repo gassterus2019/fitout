@@ -1075,7 +1075,7 @@ function ProofCell({ row, onSet, log, label }) {
     const file = e.target.files && e.target.files[0]; e.target.value = ""; if (!file) return;
     setErr("");
     if (file.type !== "application/pdf") { setErr("Harus PDF"); return; }
-    if (file.size > 10 * 1048576) { setErr("Maks 10 MB"); return; }
+    if (file.size > 40 * 1048576) { setErr("Maks 40 MB"); return; }
     setBusy(true);
     try { const url = await uploadFile(file, "bukti"); onSet({ proofUrl: url, proofName: file.name }); log && log("Unggah bukti bayar", `${label}: ${file.name}`); }
     catch (x) { setErr("Gagal unggah"); }
@@ -1205,7 +1205,7 @@ function Arsip({ docs, setDocs, log }) {
             <Ic name="upload" size={16} /> Pilih file PDF
             <input type="file" accept="application/pdf" onChange={pick} style={{ display: "none" }} />
           </label>
-          <span style={{ fontSize: 12, color: C.slate }}>Format PDF · maksimal 10 MB</span>
+          <span style={{ fontSize: 12, color: C.slate }}>Format PDF · maksimal 40 MB</span>
         </div>
       ) : (
         <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14 }}>
