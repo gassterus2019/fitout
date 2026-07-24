@@ -122,12 +122,16 @@ const ROLE = { pm: "Project Management", admin: "Admin" };
 const PRIO = ["Tinggi", "Sedang", "Rendah"];
 const PRIOC = { Tinggi: { c: "#DC2626", b: "#FEE9EC" }, Sedang: { c: "#D97706", b: "#FDF3E3" }, Rendah: { c: "#2563EB", b: "#E8F0FE" } };
 /* status Tugas Saya */
-const MST = { todo: "Belum Dikerjakan", doing: "Dikerjakan", done: "Selesai" };
-const MCOLS = [MST.todo, MST.doing, MST.done];
+const MST = { todo: "Belum Dikerjakan", doing: "Dikerjakan", done: "Selesai", cancel: "Dibatalkan" };
+const MCOLS = [MST.todo, MST.doing, MST.done, MST.cancel];
+/* jembatan status pekerjaan (Gantt/Kanban) <-> status Tugas Saya */
+const W2M = { [STATUS.todo]: MST.todo, [STATUS.doing]: MST.doing, [STATUS.done]: MST.done, [STATUS.cancel]: MST.cancel };
+const M2W = { [MST.todo]: STATUS.todo, [MST.doing]: STATUS.doing, [MST.done]: STATUS.done, [MST.cancel]: STATUS.cancel };
 const MMETA = {
   [MST.todo]:  { color: "#475569", bg: "#E8EDF3", icon: "circle", head: "#EEF2F7", row: "#FAFBFD", line: "#D8E0EA", bar: "#64748B" },
   [MST.doing]: { color: "#B45309", bg: "#FDF0DC", icon: "half",   head: "#FEF6E9", row: "#FFFCF5", line: "#F3DFBC", bar: "#E89B1C" },
   [MST.done]:  { color: "#15803D", bg: "#DCF5E7", icon: "check",  head: "#E9F9F0", row: "#F6FDF9", line: "#C3E9D4", bar: "#16A75C" },
+  [MST.cancel]:{ color: "#B91C1C", bg: "#FBE2E6", icon: "x",      head: "#FDEDF0", row: "#FFFAFB", line: "#F2CDD4", bar: "#E11D48" },
 };
 /* kode tampilan kartu, mis. KON-004 */
 const ACTCODE = { konsultan: "KON", kontraktor: "KTR", transisi: "TRS" };
@@ -261,13 +265,15 @@ const SEED_TRANS = [
 ].map(([item, qty, rate, start, finish]) => ({ id: uid(), item, qty, rate, start, finish, proofUrl: null, proofName: null }));
 
 /* --- Aktivitas per kegiatan (Pekerjaan + Sub Pekerjaan) --- */
+const mkTodo = (t) => ({ id: uid(), text: t, done: false });
+const defTodos = (nm) => [mkTodo("Persiapan " + nm), mkTodo("Pelaksanaan " + nm), mkTodo("Pemeriksaan & serah terima")];
 function mkAct(act, defs) {
   const out = [];
   defs.forEach(([name, start, finish, pct, subs]) => {
     const pid = uid();
     const hasSub = subs && subs.length;
-    out.push({ id: pid, act, parent: null, name, start, finish, percent: hasSub ? 0 : pct, status: stOf(hasSub ? 0 : pct), note: "", assignees: [], prio: "Sedang" });
-    (subs || []).forEach(([sn, ss, sf, sp], i) => out.push({ id: uid(), act, parent: pid, name: sn, start: ss, finish: sf, percent: sp, status: stOf(sp), note: "", assignees: [], prio: PRIO[i % 3] }));
+    out.push({ id: pid, act, parent: null, name, start, finish, percent: hasSub ? 0 : pct, status: stOf(hasSub ? 0 : pct), note: "", assignees: [], prio: "Sedang", actualFinish: "", pred: [], todos: hasSub ? [] : defTodos(name) });
+    (subs || []).forEach(([sn, ss, sf, sp], i) => out.push({ id: uid(), act, parent: pid, name: sn, start: ss, finish: sf, percent: sp, status: stOf(sp), note: "", assignees: [], prio: PRIO[i % 3], actualFinish: "", pred: [], todos: defTodos(sn).map((x, j) => ({ ...x, done: sp >= Math.round((j + 1) / 3 * 100) })) }));
   });
   return out;
 }
@@ -312,10 +318,10 @@ const SEED_DOCS = [
   { id: uid(), name: "Gambar Layout Lt.20", file: "layout-lt20.pdf", category: "Desain", size: 5430000, date: "2026-06-12", url: null, example: true },
 ];
 const SEED_PUNCH = [
-  { id: uid(), title: "Dinding partisi tidak siku", stage: "Wall & Partition Work", loc: "Koridor utara Lt.21", severity: "Sedang", status: PST.open, due: "2026-10-30", note: "Deviasi > 5mm di koridor utara.", photo: null },
-  { id: uid(), title: "Cat plafon belang", stage: "Ceiling Work", loc: "Ruang kerja Lt.20", severity: "Rendah", status: PST.prog, due: "2026-12-01", note: "", photo: null },
-  { id: uid(), title: "Titik stop kontak kurang", stage: "Electrical", loc: "Meeting room B Lt.22", severity: "Tinggi", status: PST.open, due: "2026-11-20", note: "Meeting room B perlu tambah 4 titik.", photo: null },
-  { id: uid(), title: "Revisi tata letak ruang rapat", stage: "Pengembangan Desain", loc: "Lt.22", severity: "Sedang", status: PST.done, due: "2026-07-04", note: "Sudah disetujui owner.", photo: null },
+  { id: uid(), act: "kontraktor", title: "Dinding partisi tidak siku", stage: "Wall & Partition Work", loc: "Koridor utara Lt.21", severity: "Sedang", status: PST.open, due: "2026-10-30", note: "Deviasi > 5mm di koridor utara.", photo: null, proofUrl: null, proofName: null },
+  { id: uid(), act: "kontraktor", title: "Cat plafon belang", stage: "Ceiling Work", loc: "Ruang kerja Lt.20", severity: "Rendah", status: PST.prog, due: "2026-12-01", note: "", photo: null, proofUrl: null, proofName: null },
+  { id: uid(), act: "kontraktor", title: "Titik stop kontak kurang", stage: "Electrical", loc: "Meeting room B Lt.22", severity: "Tinggi", status: PST.open, due: "2026-11-20", note: "Meeting room B perlu tambah 4 titik.", photo: null, proofUrl: null, proofName: null },
+  { id: uid(), act: "konsultan", title: "Revisi tata letak ruang rapat", stage: "Pengembangan Desain", loc: "Lt.22", severity: "Sedang", status: PST.done, due: "2026-07-04", note: "Sudah disetujui owner.", photo: null, proofUrl: null, proofName: null },
 ];
 const SEED_USERS = [
   { id: uid(), name: "Project Manager", email: "pm@mrt.co.id", role: ROLE.pm, active: true },
@@ -368,16 +374,17 @@ async function portalResetPassword(email) {
 }
 
 /* --- pemetaan field aplikasi <-> kolom DB --- */
-const taskToRow = (t) => ({ id: t.id, act: t.act, parent_id: t.parent || null, name: t.name, start_date: t.start, finish_date: t.finish, percent: Number(t.percent) || 0, status: t.status, note: t.note || null, assignees: t.assignees || [], prio: t.prio || "Sedang" });
-const taskFromRow = (r) => ({ id: r.id, act: r.act, parent: r.parent_id || null, name: r.name, start: r.start_date, finish: r.finish_date, percent: Number(r.percent) || 0, status: r.status, note: r.note || "", assignees: r.assignees || [], prio: r.prio || "Sedang" });
+const taskToRow = (t) => ({ id: t.id, act: t.act, parent_id: t.parent || null, name: t.name, start_date: t.start, finish_date: t.finish, percent: Number(t.percent) || 0, status: t.status, note: t.note || null, assignees: t.assignees || [], prio: t.prio || "Sedang", actual_finish: t.actualFinish || null, pred: t.pred || [], todos: JSON.stringify(t.todos || []) });
+const parseTodos = (v) => { if (Array.isArray(v)) return v; try { const x = JSON.parse(v || "[]"); return Array.isArray(x) ? x : []; } catch (e) { return []; } };
+const taskFromRow = (r) => ({ id: r.id, act: r.act, parent: r.parent_id || null, name: r.name, start: r.start_date, finish: r.finish_date, percent: Number(r.percent) || 0, status: r.status, note: r.note || "", assignees: r.assignees || [], prio: r.prio || "Sedang", actualFinish: r.actual_finish || "", pred: r.pred || [], todos: parseTodos(r.todos) });
 const costToRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
 const costFromRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start: r.start_date, finish: r.finish_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
 const termToRow = (t) => ({ id: t.id, term: t.term, descr: t.desc, percent: Number(t.percent) || 0, pay_date: t.date, proof_url: t.proofUrl || null, proof_name: t.proofName || null });
 const termFromRow = (r) => ({ id: r.id, term: r.term, desc: r.descr, percent: Number(r.percent) || 0, date: r.pay_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
 const docToRow = (d) => ({ id: d.id, name: d.name, file_name: d.file, category: d.category, size_bytes: Math.round(Number(d.size) || 0), doc_date: d.date, url: d.url || null, is_example: !!d.example });
 const docFromRow = (r) => ({ id: r.id, name: r.name, file: r.file_name, category: r.category, size: Number(r.size_bytes) || 0, date: r.doc_date, url: r.url || null, example: !!r.is_example });
-const punchToRow = (p) => ({ id: p.id, title: p.title, stage: p.stage, loc: p.loc || null, severity: p.severity, status: p.status, due_date: p.due, note: p.note || null, photo_url: p.photo || null });
-const punchFromRow = (r) => ({ id: r.id, title: r.title, stage: r.stage, loc: r.loc || "", severity: r.severity, status: r.status, due: r.due_date, note: r.note || "", photo: r.photo_url || null });
+const punchToRow = (p) => ({ id: p.id, act: p.act || "kontraktor", title: p.title, stage: p.stage, loc: p.loc || null, severity: p.severity, status: p.status, due_date: p.due, note: p.note || null, photo_url: p.photo || null, proof_url: p.proofUrl || null, proof_name: p.proofName || null });
+const punchFromRow = (r) => ({ id: r.id, act: r.act || "kontraktor", title: r.title, stage: r.stage, loc: r.loc || "", severity: r.severity, status: r.status, due: r.due_date, note: r.note || "", photo: r.photo_url || null, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
 const actToRow = (a) => ({ id: a.id, key: a.key, label: a.label, color: a.color, soft: a.soft, icon: a.icon, builtin: !!a.builtin });
 const actFromRow = (r) => ({ id: r.id, key: r.key, label: r.label, color: r.color || C.blue, soft: r.soft || C.blueSoft, icon: r.icon || "kanban", builtin: !!r.builtin });
 const acostToRow = (r) => ({ id: r.id, act: r.act, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
@@ -612,7 +619,8 @@ const inS = { width: "100%", padding: "9px 11px", border: `1px solid ${C.line}`,
 const Input = (p) => <input {...p} style={{ ...inS, ...(p.style || {}) }} />;
 const Sel = ({ children, ...p }) => <select {...p} style={{ ...inS, ...(p.style || {}) }}>{children}</select>;
 const Area = (p) => <textarea {...p} style={{ ...inS, resize: "vertical", minHeight: 64, ...(p.style || {}) }} />;
-function Field({ label, children }) { return <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 4 }}>{label}<div style={{ marginTop: 4 }}>{children}</div></label>; }
+function Field({ label, children, req }) { return <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 4 }}>{label}{req && <span style={{ color: C.red, marginLeft: 3, fontWeight: 800 }}>*</span>}<div style={{ marginTop: 4 }}>{children}</div></label>; }
+function ReqNote() { return <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 12 }}>Kolom bertanda <span style={{ color: C.red, fontWeight: 800 }}>*</span> wajib diisi.</div>; }
 function Card({ children, style }) { return <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 18, boxShadow: "0 1px 2px rgba(16,42,67,.04)", minWidth: 0, ...style }}>{children}</div>; }
 function CardHead({ icon, title, right, color = C.blue }) {
   return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
@@ -700,7 +708,10 @@ function buildRows(tasks, act, collapsed, all) {
   const list = tasks.filter((t) => t.act === act);
   const out = [];
   list.filter((t) => !t.parent).forEach((p) => {
-    const kids = list.filter((k) => k.parent === p.id);
+    /* sub pekerjaan diurutkan otomatis: yang mulai lebih awal di atas
+       (pengurutan hanya di dalam satu Pekerjaan, bukan lintas pekerjaan) */
+    const kids = list.filter((k) => k.parent === p.id)
+      .slice().sort((a, b) => (D(a.start) - D(b.start)) || (D(a.finish) - D(b.finish)) || a.name.localeCompare(b.name));
     const parent = rollup(p, kids);
     out.push({ ...parent, level: 0, kids: kids.length });
     if (all || !collapsed[p.id]) kids.forEach((k) => out.push({ ...k, level: 1, kids: 0 }));
@@ -714,6 +725,67 @@ function progressOf(tasks, act) {
   let tot = 0, dn = 0;
   leaves.forEach((t) => { const d = days(D(t.start), D(t.finish)) + 1; tot += d; dn += d * (Number(t.percent) || 0); });
   return tot ? Math.round(dn / tot) : 0;
+}
+
+/* ===== PENJADWALAN: predecessor, penyelesaian aktual, prediksi selesai ===== */
+const effFinish = (t) => t.actualFinish || t.finish;
+const lateDays = (t) => (t.actualFinish ? days(D(t.finish), D(t.actualFinish)) : 0);
+/* daftar penerus (successor) = kebalikan predecessor */
+const succOf = (tasks, id) => tasks.filter((t) => (t.pred || []).indexOf(id) >= 0);
+/* apakah menambah pred akan membuat lingkaran ketergantungan? */
+function makesCycle(tasks, id, predId) {
+  if (id === predId) return true;
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const seen = new Set(); const stack = [predId];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur === id) return true;
+    if (seen.has(cur)) continue; seen.add(cur);
+    const t = byId.get(cur); if (!t) continue;
+    (t.pred || []).forEach((p) => stack.push(p));
+  }
+  return false;
+}
+/* geser jadwal mengikuti ketergantungan: mulai paling awal = finish efektif
+   predecessor + 1 hari. Durasi dipertahankan. Hanya pekerjaan ber-predecessor
+   yang digeser, sehingga jadwal yang diatur manual tidak diacak. */
+function recalcSchedule(tasks) {
+  const byId = new Map(tasks.map((t) => [t.id, { ...t }]));
+  const indeg = new Map(), adj = new Map();
+  tasks.forEach((t) => { indeg.set(t.id, 0); adj.set(t.id, []); });
+  tasks.forEach((t) => (t.pred || []).forEach((p) => {
+    if (byId.has(p)) { adj.get(p).push(t.id); indeg.set(t.id, (indeg.get(t.id) || 0) + 1); }
+  }));
+  const q = tasks.filter((t) => indeg.get(t.id) === 0).map((t) => t.id);
+  const order = [];
+  while (q.length) {
+    const id = q.shift(); order.push(id);
+    adj.get(id).forEach((n) => { indeg.set(n, indeg.get(n) - 1); if (indeg.get(n) === 0) q.push(n); });
+  }
+  let moved = 0;
+  order.forEach((id) => {
+    const t = byId.get(id);
+    const preds = (t.pred || []).map((p) => byId.get(p)).filter(Boolean);
+    if (!preds.length) return;
+    let latest = null;
+    preds.forEach((p) => { const f = D(effFinish(p)); if (!latest || f > latest) latest = f; });
+    const earliest = addDays(latest, 1);
+    if (D(t.start) < earliest) {
+      const dur = days(D(t.start), D(t.finish));
+      t.start = iso(earliest); t.finish = iso(addDays(earliest, dur));
+      moved++;
+    }
+  });
+  return { tasks: tasks.map((t) => byId.get(t.id)), moved, cycle: order.length < tasks.length };
+}
+/* prediksi tanggal selesai proyek (setelah jadwal ulang, tanpa mengubah data) */
+function predictFinish(tasks, act) {
+  const scope = tasks.filter((t) => (!act || t.act === act) && t.status !== STATUS.cancel);
+  if (!scope.length) return null;
+  const r = recalcSchedule(scope);
+  let mx = null;
+  r.tasks.forEach((t) => { const f = D(effFinish(t)); if (!mx || f > mx) mx = f; });
+  return mx ? iso(mx) : null;
 }
 
 /* ===== GANTT (sumbu: Bulan + Minggu ke-, garis hari ini, tooltip tanggal) ===== */
@@ -1014,34 +1086,143 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
 }
 
 /* ===== TASK MODAL ===== */
+/* --- pemilih ketergantungan: Kegiatan -> Pekerjaan -> Sub Pekerjaan --- */
+function DepPicker({ tasks, exclude, onPick, label }) {
+  const [ak, setAk] = useState(ACTS[0] ? ACTS[0].key : "");
+  const [pid, setPid] = useState("");
+  const parents = tasks.filter((t) => t.act === ak && !t.parent);
+  const kids = pid ? tasks.filter((t) => t.parent === pid).slice().sort((a, b) => D(a.start) - D(b.start)) : [];
+  const pick = (id) => { if (!id || exclude.indexOf(id) >= 0) return; onPick(id); };
+  return <div style={{ display: "grid", gap: 7 }}>
+    <div className="g3" style={{ gap: 7 }}>
+      <Sel value={ak} onChange={(e) => { setAk(e.target.value); setPid(""); }} style={{ fontSize: 12.5, padding: "7px 9px" }}>
+        {ACTS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}
+      </Sel>
+      <Sel value={pid} onChange={(e) => setPid(e.target.value)} style={{ fontSize: 12.5, padding: "7px 9px" }}>
+        <option value="">— pilih pekerjaan —</option>
+        {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </Sel>
+      <Sel value="" onChange={(e) => pick(e.target.value)} disabled={!pid} style={{ fontSize: 12.5, padding: "7px 9px" }}>
+        <option value="">{kids.length ? "— pilih sub pekerjaan —" : "(tanpa sub pekerjaan)"}</option>
+        {pid && <option value={pid}>▲ {parents.find((x) => x.id === pid) ? parents.find((x) => x.id === pid).name : ""} (pekerjaan induk)</option>}
+        {kids.map((k) => <option key={k.id} value={k.id} disabled={exclude.indexOf(k.id) >= 0}>{fmtDate(k.start)} · {k.name}</option>)}
+      </Sel>
+    </div>
+    <div style={{ fontSize: 11, color: C.slate }}>{label}</div>
+  </div>;
+}
+function DepChips({ ids, tasks, onRemove, color }) {
+  if (!ids.length) return <div style={{ fontSize: 12, color: "#A9B7C6", padding: "4px 0" }}>Belum ada.</div>;
+  return <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+    {ids.map((id) => { const t = tasks.find((x) => x.id === id); if (!t) return null;
+      return <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: color + "14", color, border: `1px solid ${color}44`, borderRadius: 8, padding: "4px 8px", fontSize: 11.5, fontWeight: 600 }}>
+        {t.name} <span style={{ opacity: .7, fontWeight: 500 }}>{fmtDate(effFinish(t))}</span>
+        <button onClick={() => onRemove(id)} style={{ ...iconBtn, padding: 0, color }}><Ic name="x" size={12} /></button>
+      </span>; })}
+  </div>;
+}
 function TaskModal({ task, act, tasks, users, onClose, onSave }) {
   const parents = tasks.filter((t) => t.act === act && !t.parent && (!task || t.id !== task.id));
   const hasKids = task ? tasks.some((t) => t.parent === task.id) : false;
-  const [f, setF] = useState(task || { name: "", act, parent: null, start: PROJECT.statusDate, finish: PROJECT.statusDate, percent: 0, status: STATUS.todo, note: "", assignees: [], prio: "Sedang" });
+  const [f, setF] = useState(() => {
+    const base = task || { name: "", act, parent: null, start: PROJECT.statusDate, finish: PROJECT.statusDate, percent: 0, status: STATUS.todo, note: "", assignees: [], prio: "Sedang", actualFinish: "", pred: [], todos: [] };
+    const todos = (base.todos && base.todos.length) ? base.todos : (hasKids ? [] : [{ id: uid(), text: "", done: false }, { id: uid(), text: "", done: false }, { id: uid(), text: "", done: false }]);
+    return { ...base, todos, pred: base.pred || [], actualFinish: base.actualFinish || "" };
+  });
+  const [succ, setSucc] = useState(task ? succOf(tasks, task.id).map((t) => t.id) : []);
+  const [err, setErr] = useState("");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
-  const save = () => { if (!f.name.trim()) return; const pct = Math.max(0, Math.min(100, Number(f.percent) || 0)); onSave({ ...f, act, percent: pct, status: f.status === STATUS.cancel ? STATUS.cancel : stOf(pct) }); };
-  return <Modal title={task ? "Edit Pekerjaan" : "Tambah Pekerjaan"} onClose={onClose} width={520}>
-    <Field label="Nama pekerjaan"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Proses Tender / Market Survei" /></Field>
+  const setTodo = (id, patch) => setF((s) => ({ ...s, todos: s.todos.map((t) => t.id === id ? { ...t, ...patch } : t) }));
+  const addTodo = () => setF((s) => ({ ...s, todos: [...s.todos, { id: uid(), text: "", done: false }] }));
+  const delTodo = (id) => setF((s) => s.todos.length <= 3 ? s : ({ ...s, todos: s.todos.filter((t) => t.id !== id) }));
+  const share = f.todos.length ? 100 / f.todos.length : 0;
+  const doneN = f.todos.filter((t) => t.done).length;
+  const autoPct = f.todos.length ? Math.round(doneN / f.todos.length * 100) : (Number(f.percent) || 0);
+  const late = f.actualFinish && f.finish ? days(D(f.finish), D(f.actualFinish)) : 0;
+
+  const save = () => {
+    setErr("");
+    if (!f.name.trim()) { setErr("Nama pekerjaan wajib diisi."); return; }
+    if (!f.start || !f.finish) { setErr("Tanggal mulai dan selesai wajib diisi."); return; }
+    if (D(f.finish) < D(f.start)) { setErr("Tanggal selesai tidak boleh mendahului tanggal mulai."); return; }
+    if (!hasKids) {
+      if (f.todos.length < 3) { setErr("Minimal 3 to-do list wajib diisi."); return; }
+      if (f.todos.some((t) => !t.text.trim())) { setErr("Semua to-do list wajib diisi teksnya (atau hapus baris yang kosong)."); return; }
+    }
+    if (f.actualFinish && D(f.actualFinish) < D(f.start)) { setErr("Penyelesaian aktual tidak boleh mendahului tanggal mulai."); return; }
+    const pct = hasKids ? Number(f.percent) || 0 : autoPct;
+    onSave({ ...f, act, percent: pct, status: f.status === STATUS.cancel ? STATUS.cancel : stOf(pct), todos: f.todos.map((t) => ({ ...t, text: t.text.trim() })), _succ: succ });
+  };
+  const exclude = [task ? task.id : "x", ...f.pred];
+  return <Modal title={task ? "Edit Pekerjaan" : "Tambah Pekerjaan"} onClose={onClose} width={620}>
+    <ReqNote />
+    <Field label="Nama pekerjaan" req><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Proses Tender / Market Survei" /></Field>
     <div style={{ marginTop: 12 }}><Field label="Induk (kosongkan bila ini Pekerjaan utama)">
       <Sel value={f.parent || ""} onChange={(e) => set("parent", e.target.value || null)} disabled={hasKids}>
         <option value="">— Pekerjaan utama —</option>
         {parents.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
       </Sel>
     </Field>{hasKids && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Pekerjaan ini punya sub pekerjaan, jadi induknya tidak bisa diubah.</div>}</div>
-    <div className="g2" style={{ marginTop: 12 }}>
-      <Field label="Mulai"><Input type="date" value={f.start} onChange={(e) => set("start", e.target.value)} disabled={hasKids} /></Field>
-      <Field label="Selesai"><Input type="date" value={f.finish} onChange={(e) => set("finish", e.target.value)} disabled={hasKids} /></Field>
+
+    <div className="g3" style={{ marginTop: 12, gap: 12 }}>
+      <Field label="Mulai" req><Input type="date" value={f.start} onChange={(e) => set("start", e.target.value)} disabled={hasKids} /></Field>
+      <Field label="Selesai (rencana)" req><Input type="date" value={f.finish} onChange={(e) => set("finish", e.target.value)} disabled={hasKids} /></Field>
+      <Field label="Penyelesaian aktual"><Input type="date" value={f.actualFinish || ""} onChange={(e) => set("actualFinish", e.target.value)} disabled={hasKids} /></Field>
     </div>
-    <div style={{ marginTop: 12 }}><Field label={`Progres: ${hasKids ? "otomatis dari sub pekerjaan" : (f.percent + "%")}`}>
-      <Input type="range" min="0" max="100" step="5" value={f.percent} onChange={(e) => set("percent", Number(e.target.value))} disabled={hasKids} style={{ padding: 0, border: "none" }} />
-    </Field></div>
+    {f.actualFinish && <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4, color: late > 0 ? C.red : C.green }}>
+      {late > 0 ? `Telat ${late} hari — pekerjaan penerus akan otomatis mundur saat dijadwalkan ulang.` : late < 0 ? `Lebih cepat ${Math.abs(late)} hari dari rencana.` : "Tepat sesuai rencana."}
+    </div>}
+
     <div className="g2" style={{ marginTop: 12 }}>
-      <Field label="Status"><Sel value={f.status} onChange={(e) => set("status", e.target.value)} disabled={hasKids}>{KCOLS.map((s) => <option key={s}>{s}</option>)}</Sel></Field>
-      <Field label="Skala prioritas"><Sel value={f.prio || "Sedang"} onChange={(e) => set("prio", e.target.value)}>{PRIO.map((x) => <option key={x}>{x}</option>)}</Sel></Field>
+      <Field label="Status" req><Sel value={f.status} onChange={(e) => set("status", e.target.value)} disabled={hasKids}>{KCOLS.map((s) => <option key={s}>{s}</option>)}</Sel></Field>
+      <Field label="Skala prioritas" req><Sel value={f.prio || "Sedang"} onChange={(e) => set("prio", e.target.value)}>{PRIO.map((x) => <option key={x}>{x}</option>)}</Sel></Field>
     </div>
-    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Status mengikuti progres kecuali dipilih “{STATUS.cancel}”.</div>
-    <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>PIC pekerjaan ({(f.assignees || []).length} orang)</div>
+
+    {/* ---- TO-DO LIST penentu persentase ---- */}
+    {!hasKids && <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, background: "#FBFCFE" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink }}>To-do list penentu progres <span style={{ color: C.red }}>*</span></div>
+        <div style={{ fontSize: 11.5, color: C.slate }}>{f.todos.length} item · masing-masing bernilai <b style={{ color: C.violet }}>{share.toFixed(1)}%</b></div>
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        {f.todos.map((t, i) => <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => setTodo(t.id, { done: !t.done })} title={t.done ? "Tandai belum selesai" : "Tandai selesai"}
+            style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${t.done ? C.green : "#C7D2DE"}`, background: t.done ? C.green : "#fff", color: "#fff", cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, padding: 0 }}>
+            {t.done && <Ic name="check" size={11} />}
+          </button>
+          <Input value={t.text} onChange={(e) => setTodo(t.id, { text: e.target.value })} placeholder={`Langkah ${i + 1}`} style={{ flex: 1, padding: "7px 10px", fontSize: 12.5, textDecoration: t.done ? "line-through" : "none", color: t.done ? C.slate : C.ink }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: t.done ? C.green : "#A9B7C6", width: 44, textAlign: "right", flexShrink: 0 }}>{t.done ? "+" + share.toFixed(1) + "%" : share.toFixed(1) + "%"}</span>
+          <button onClick={() => delTodo(t.id)} disabled={f.todos.length <= 3} title={f.todos.length <= 3 ? "3 to-do pertama wajib ada" : "Hapus to-do"}
+            style={{ ...iconBtn, color: f.todos.length <= 3 ? "#D3DCE6" : C.red, cursor: f.todos.length <= 3 ? "not-allowed" : "pointer", flexShrink: 0 }}><Ic name="trash" size={13} /></button>
+        </div>)}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+        <Btn size="sm" kind="ghost" onClick={addTodo}><Ic name="plus" size={13} /> Tambah to-do</Btn>
+        <div style={{ flex: 1, minWidth: 120 }}><Bar pct={autoPct} color={autoPct >= 100 ? C.green : C.violet} /></div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: autoPct >= 100 ? C.green : C.ink }}>{doneN}/{f.todos.length} · {autoPct}%</div>
+      </div>
+      <div style={{ fontSize: 11, color: C.slate, marginTop: 6 }}>Progres pekerjaan dihitung otomatis dari to-do yang tercentang, jadi tidak lagi menebak angka persen.</div>
+    </div>}
+    {hasKids && <div style={{ marginTop: 14 }}><Field label="Progres (otomatis dari sub pekerjaan)"><Input value={f.percent + "%"} disabled /></Field></div>}
+
+    {/* ---- KETERGANTUNGAN ---- */}
+    <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Ketergantungan jadwal</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 5 }}>Predecessor — pekerjaan yang harus selesai lebih dulu</div>
+      <DepPicker tasks={tasks} exclude={exclude} label="Pilih kegiatan → pekerjaan → sub pekerjaan. Bisa lintas kegiatan."
+        onPick={(id) => { if (task && makesCycle(tasks, task.id, id)) { setErr("Tidak bisa: akan membuat ketergantungan melingkar."); return; } setErr(""); set("pred", [...f.pred, id]); }} />
+      <DepChips ids={f.pred} tasks={tasks} color={C.blue} onRemove={(id) => set("pred", f.pred.filter((x) => x !== id))} />
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.slate, margin: "12px 0 5px" }}>Successor — pekerjaan yang menunggu pekerjaan ini</div>
+      {task ? <>
+        <DepPicker tasks={tasks} exclude={[task.id, ...succ]} label="Pekerjaan terpilih akan otomatis mundur bila pekerjaan ini telat."
+          onPick={(id) => { if (makesCycle(tasks, id, task.id)) { setErr("Tidak bisa: akan membuat ketergantungan melingkar."); return; } setErr(""); setSucc((s) => [...s, id]); }} />
+        <DepChips ids={succ} tasks={tasks} color={C.orange} onRemove={(id) => setSucc((s) => s.filter((x) => x !== id))} />
+      </> : <div style={{ fontSize: 12, color: "#A9B7C6" }}>Simpan pekerjaan ini dulu, successor bisa diatur setelahnya.</div>}
+    </div>
+
+    {/* ---- PIC ---- */}
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>PIC pekerjaan ({(f.assignees || []).length} orang) — otomatis muncul di menu “Tugas Saya” masing-masing</div>
       <div style={{ maxHeight: 168, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 11, padding: 6 }}>
         {(users || []).filter((u) => u.active).map((u) => { const on = (f.assignees || []).indexOf(u.email) >= 0; return (
           <button key={u.id} onClick={() => set("assignees", on ? f.assignees.filter((x) => x !== u.email) : [...(f.assignees || []), u.email])}
@@ -1053,6 +1234,9 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
         {(users || []).filter((u) => u.active).length === 0 && <Empty text="Belum ada user aktif." />}
       </div>
     </div>
+
+    <div style={{ marginTop: 12 }}><Field label="Catatan"><Area value={f.note || ""} onChange={(e) => set("note", e.target.value)} placeholder="Catatan pelaksanaan" style={{ minHeight: 64 }} /></Field></div>
+    {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, fontWeight: 600 }}>{err}</div>}
     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save}>{task ? "Simpan" : "Tambah"}</Btn></div>
   </Modal>;
 }
@@ -1426,7 +1610,7 @@ function Arsip({ docs, setDocs, log }) {
         <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 12, padding: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12.5, color: C.slate }}><span style={{ color: C.red }}><Ic name="file" size={16} /></span> {pending.file.name} · {mb(pending.file.size)}</div>
           <div className="g2">
-            <Field label="Nama Dokumen"><Input value={pending.name} onChange={(e) => setPending((p) => ({ ...p, name: e.target.value }))} placeholder="mis. Kontrak Konsultan MRT" /></Field>
+            <Field label="Nama Dokumen" req><Input value={pending.name} onChange={(e) => setPending((p) => ({ ...p, name: e.target.value }))} placeholder="mis. Kontrak Konsultan MRT" /></Field>
             <Field label="Kategori"><Sel value={cat} onChange={(e) => setCat(e.target.value)}>{CATS.map((c) => <option key={c}>{c}</option>)}</Sel></Field>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}><Btn kind="ghost" size="sm" onClick={() => setPending(null)}>Batal</Btn><Btn size="sm" onClick={commit} disabled={busy} style={{ opacity: busy ? .7 : 1 }}><Ic name="check" size={14} /> {busy ? "Mengunggah…" : "Unggah"}</Btn></div>
@@ -1463,8 +1647,8 @@ function Arsip({ docs, setDocs, log }) {
 }
 
 /* ===== PUNCHLIST ===== */
-function PunchModal({ item, stages, onSave, onClose }) {
-  const [f, setF] = useState(item || { title: "", stage: stages[0] || "", loc: "", severity: "Sedang", status: PST.open, due: PROJECT.statusDate, note: "", photo: null });
+function PunchModal({ item, stages, act, onSave, onClose }) {
+  const [f, setF] = useState(item || { act: act || (ACTS[0] && ACTS[0].key), title: "", stage: stages[0] || "", loc: "", severity: "Sedang", status: PST.open, due: PROJECT.statusDate, note: "", photo: null, proofUrl: null, proofName: null });
   const [imgErr, setImgErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
@@ -1476,22 +1660,30 @@ function PunchModal({ item, stages, onSave, onClose }) {
     const r = new FileReader(); r.onload = () => set("photo", r.result); r.readAsDataURL(file);
   };
   const save = async () => {
-    if (!f.title.trim() || busy) return;
+    if (busy) return;
+    setImgErr("");
+    if (!f.title.trim()) { setImgErr("Judul temuan wajib diisi."); return; }
+    if (!(f.loc || "").trim()) { setImgErr("Lokasi wajib diisi."); return; }
+    if (!f.stage) { setImgErr("Tahap / aktivitas wajib dipilih."); return; }
+    if (!f.due) { setImgErr("Tanggal target wajib diisi."); return; }
     setBusy(true);
     try { const photo = await uploadDataUrl(f.photo, "punch"); onSave({ ...f, photo }); }
     catch (e) { setImgErr("Gagal mengunggah foto: " + (e.message || "")); setBusy(false); }
   };
   return <Modal title={item ? "Edit Temuan" : "Tambah Temuan"} onClose={onClose} width={520}>
-    <Field label="Judul temuan"><Input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="mis. Dinding partisi tidak siku" /></Field>
+    <ReqNote />
+    <Field label="Judul temuan" req><Input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="mis. Dinding partisi tidak siku" /></Field>
     <div className="g2" style={{ marginTop: 12 }}>
-      <Field label="Tahap / Aktivitas"><Sel value={f.stage} onChange={(e) => set("stage", e.target.value)}>{stages.map((n) => <option key={n}>{n}</option>)}</Sel></Field>
-      <Field label="Lokasi"><Input value={f.loc || ""} onChange={(e) => set("loc", e.target.value)} placeholder="mis. Koridor utara Lt.21" /></Field>
+      <Field label="Kegiatan" req><Sel value={f.act} onChange={(e) => set("act", e.target.value)}>{ACTS.map((a) => <option key={a.key} value={a.key}>{a.label}</option>)}</Sel></Field>
+      <Field label="Tahap / Aktivitas" req><Sel value={f.stage} onChange={(e) => set("stage", e.target.value)}>{stages.map((n) => <option key={n}>{n}</option>)}</Sel></Field>
     </div>
+    <div style={{ marginTop: 12 }}><Field label="Lokasi" req><Input value={f.loc || ""} onChange={(e) => set("loc", e.target.value)} placeholder="mis. Koridor utara Lt.21" /></Field></div>
     <div className="g3" style={{ marginTop: 12, gap: 12 }}>
-      <Field label="Severity"><Sel value={f.severity} onChange={(e) => set("severity", e.target.value)}>{SEV.map((s) => <option key={s}>{s}</option>)}</Sel></Field>
-      <Field label="Status"><Sel value={f.status} onChange={(e) => set("status", e.target.value)}>{[PST.open, PST.prog, PST.done].map((s) => <option key={s}>{s}</option>)}</Sel></Field>
-      <Field label="Due"><Input type="date" value={f.due} onChange={(e) => set("due", e.target.value)} /></Field>
+      <Field label="Severity" req><Sel value={f.severity} onChange={(e) => set("severity", e.target.value)}>{SEV.map((s) => <option key={s}>{s}</option>)}</Sel></Field>
+      <Field label="Status" req><Sel value={f.status} onChange={(e) => set("status", e.target.value)}>{[PST.open, PST.prog].map((s) => <option key={s}>{s}</option>)}</Sel></Field>
+      <Field label="Target selesai" req><Input type="date" value={f.due} onChange={(e) => set("due", e.target.value)} /></Field>
     </div>
+    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Status “{PST.done}” hanya bisa dipilih dari daftar temuan karena wajib melampirkan bukti penyelesaian.</div>
     <div style={{ marginTop: 12 }}><Field label="Foto temuan (opsional)">
       <div className="rowwrap">
         <label style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 13px", background: C.blueSoft, color: C.blue, borderRadius: 10, fontWeight: 600, fontSize: 12.5, cursor: "pointer", border: `1px solid ${C.line}` }}>
@@ -1509,6 +1701,43 @@ function PunchModal({ item, stages, onSave, onClose }) {
     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save} disabled={busy} style={{ opacity: busy ? .7 : 1 }}>{busy ? "Menyimpan…" : (item ? "Simpan" : "Tambah")}</Btn></div>
   </Modal>;
 }
+/* bukti penyelesaian temuan: PNG/JPG/PDF maks 3 MB; batal = status kembali */
+function PunchProofModal({ item, onDone, onCancel }) {
+  const [file, setFile] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pick = (e) => {
+    const fl = e.target.files && e.target.files[0]; e.target.value = ""; if (!fl) return;
+    setErr("");
+    const ok = ["image/png", "image/jpeg", "image/jpg", "application/pdf"];
+    if (ok.indexOf(fl.type) < 0) { setErr("Format harus PNG, JPG, atau PDF."); return; }
+    if (fl.size > 3 * 1048576) { setErr(`Ukuran ${mb(fl.size)} melebihi batas 3 MB.`); return; }
+    setFile(fl);
+  };
+  const submit = async () => {
+    if (!file) { setErr("Bukti penyelesaian wajib diunggah."); return; }
+    setBusy(true);
+    try { const url = await uploadFile(file, "punch-bukti"); onDone({ proofUrl: url, proofName: file.name }); }
+    catch (e) { setErr("Gagal mengunggah: " + (e.message || "")); setBusy(false); }
+  };
+  return <Modal title="Bukti Penyelesaian Temuan" onClose={onCancel} width={470}>
+    <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{item.title}</div>
+    <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>{item.stage} · {item.loc || "tanpa lokasi"}</div>
+    <div style={{ background: "#FCF3E2", border: `1px solid ${C.amber}`, borderRadius: 11, padding: "10px 12px", fontSize: 12.5, color: C.ink, marginBottom: 14 }}>
+      Temuan hanya bisa ditandai <b>{PST.done}</b> bila disertai bukti. Bila dibatalkan, status kembali seperti semula.
+    </div>
+    <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "18px 14px", border: `1.5px dashed ${file ? C.green : C.line}`, borderRadius: 12, cursor: "pointer", background: file ? C.greenSoft : C.bg }}>
+      <Ic name={file ? "check" : "upload"} size={17} />
+      <span style={{ fontSize: 13, fontWeight: 600, color: file ? C.green : C.ink }}>{file ? `${file.name} · ${mb(file.size)}` : "Pilih berkas bukti (PNG / JPG / PDF, maks 3 MB)"}</span>
+      <input type="file" accept="image/png,image/jpeg,application/pdf" onChange={pick} style={{ display: "none" }} />
+    </label>
+    {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, fontWeight: 600 }}>{err}</div>}
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+      <Btn kind="ghost" onClick={onCancel}>Batal</Btn>
+      <Btn kind="green" onClick={submit} disabled={busy || !file} style={{ opacity: busy || !file ? .6 : 1 }}>{busy ? "Mengunggah…" : "Tandai Selesai"}</Btn>
+    </div>
+  </Modal>;
+}
 function PunchReportModal({ stages, defaultStage, onClose, onMake }) {
   const [stage, setStage] = useState(defaultStage || "");
   const [loc, setLoc] = useState("");
@@ -1516,13 +1745,13 @@ function PunchReportModal({ stages, defaultStage, onClose, onMake }) {
     <Field label="Tahapan (pekerjaan konstruksi)">
       <Sel value={stage} onChange={(e) => setStage(e.target.value)}><option value="">Semua tahap</option>{stages.map((n) => <option key={n}>{n}</option>)}</Sel>
     </Field>
-    <div style={{ marginTop: 12 }}><Field label="Lokasi pekerjaan"><Input value={loc} onChange={(e) => setLoc(e.target.value)} placeholder="mis. Gedung MRT Jakarta, Lantai 20–22" /></Field></div>
+    <div style={{ marginTop: 12 }}><Field label="Lokasi pekerjaan" req><Input value={loc} onChange={(e) => setLoc(e.target.value)} placeholder="mis. Gedung MRT Jakarta, Lantai 20–22" /></Field></div>
     <div style={{ marginTop: 12, fontSize: 12.5, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
       Tanggal cetak otomatis: <b style={{ color: C.ink }}>{tglPanjang()}</b>
     </div>
     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
       <Btn kind="ghost" onClick={onClose}>Batal</Btn>
-      <Btn onClick={() => onMake({ stage, loc })}><Ic name="file" size={15} /> Buat Laporan</Btn>
+      <Btn onClick={() => { if (!loc.trim()) { window.alert("Lokasi pekerjaan wajib diisi."); return; } onMake({ stage, loc }); }}><Ic name="file" size={15} /> Buat Laporan</Btn>
     </div>
   </Modal>;
 }
@@ -1590,29 +1819,54 @@ function Punchlist({ punch, setPunch, tasks, can, log }) {
   const [report, setReport] = useState(null);
   const [fStage, setFStage] = useState("");
   const [fStatus, setFStatus] = useState("");
+  const [actTab, setActTab] = useState(ACTS[0] ? ACTS[0].key : "");
+  const [proof, setProof] = useState(null);   // { item, prev }
   const save = (data) => {
     if (data.id) { setPunch((s) => s.map((p) => p.id === data.id ? data : p)); log && log("Edit temuan", data.title); }
     else { setPunch((s) => [{ ...data, id: uid() }, ...s]); log && log("Tambah temuan", data.title); }
     setModal(null);
   };
-  const setStatus = (id, st) => { setPunch((s) => s.map((p) => p.id === id ? { ...p, status: st } : p)); const it = punch.find((p) => p.id === id); log && log("Ubah status temuan", `${it ? it.title : id} → ${st}`); };
-  const list = punch.filter((p) => (!fStage || p.stage === fStage) && (!fStatus || p.status === fStatus));
+  const setStatus = (id, st) => {
+    const it = punch.find((p) => p.id === id); if (!it) return;
+    if (st === PST.done && !it.proofUrl) { setProof({ item: it, prev: it.status }); return; }   // wajib bukti dulu
+    setPunch((s) => s.map((p) => p.id === id ? { ...p, status: st, ...(st !== PST.done ? { proofUrl: null, proofName: null } : {}) } : p));
+    log && log("Ubah status temuan", `${it.title} → ${st}`);
+  };
+  const finishWithProof = (data) => {
+    const it = proof.item;
+    setPunch((s) => s.map((p) => p.id === it.id ? { ...p, status: PST.done, ...data } : p));
+    log && log("Selesaikan temuan", `${it.title} · bukti: ${data.proofName}`);
+    setProof(null);
+  };
+  const actPunch = punch.filter((p) => (p.act || "kontraktor") === actTab);
+  const list = actPunch.filter((p) => (!fStage || p.stage === fStage) && (!fStatus || p.status === fStatus));
   const byStage = {};
-  punch.forEach((p) => { (byStage[p.stage] = byStage[p.stage] || []).push(p); });
+  actPunch.forEach((p) => { (byStage[p.stage] = byStage[p.stage] || []).push(p); });
   const stageRows = Object.keys(byStage).map((st) => { const it = byStage[st]; const done = it.filter((x) => x.status === PST.done).length; return { stage: st, total: it.length, open: it.filter((x) => x.status === PST.open).length, prog: it.filter((x) => x.status === PST.prog).length, done }; });
-  const cnt = { open: punch.filter((p) => p.status === PST.open).length, prog: punch.filter((p) => p.status === PST.prog).length, done: punch.filter((p) => p.status === PST.done).length };
+  const cnt = { open: actPunch.filter((p) => p.status === PST.open).length, prog: actPunch.filter((p) => p.status === PST.prog).length, done: actPunch.filter((p) => p.status === PST.done).length };
   const th = { textAlign: "left", fontSize: 11, fontWeight: 700, color: C.slate, padding: "10px 8px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .3, whiteSpace: "nowrap" };
   const td = { padding: "9px 8px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink, verticalAlign: "top" };
-  const allStages = Array.from(new Set([...tasks.map((t) => t.name), ...punch.map((p) => p.stage)]));
+  const allStages = Array.from(new Set([...tasks.filter((t) => t.act === actTab).map((t) => t.name), ...actPunch.map((p) => p.stage)]));
   return <div className="g1">
+    <Card style={{ padding: 12 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {ACTS.map((a) => { const n = punch.filter((p) => (p.act || "kontraktor") === a.key).length;
+          const open = punch.filter((p) => (p.act || "kontraktor") === a.key && p.status !== PST.done).length;
+          return <button key={a.key} onClick={() => { setActTab(a.key); setFStage(""); setFStatus(""); }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 11, border: `1px solid ${actTab === a.key ? a.color : C.line}`, background: actTab === a.key ? a.soft : "#fff", color: actTab === a.key ? a.color : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            <Ic name={a.icon} size={15} /> {a.label}
+            <span style={{ fontSize: 11, fontWeight: 800, background: actTab === a.key ? "#fff" : C.bg, color: open ? C.red : C.slate, borderRadius: 6, padding: "1px 7px" }}>{open}/{n}</span>
+          </button>; })}
+      </div>
+    </Card>
     <div className="g4">
-      <Stat label="Total Temuan" value={punch.length} icon="clipboard" color={C.ink} />
+      <Stat label={"Temuan " + actOf(actTab).label} value={actPunch.length} sub={`${punch.length} total seluruh kegiatan`} icon="clipboard" color={actOf(actTab).color} />
       <Stat label="Terbuka" value={cnt.open} icon="alert" color={C.red} />
       <Stat label="Proses" value={cnt.prog} icon="trending" color={C.amber} />
       <Stat label="Selesai" value={cnt.done} icon="check" color={C.green} />
     </div>
     <Card>
-      <CardHead icon="clipboard" title="Monitor Punchlist per Tahap" right={
+      <CardHead icon={actOf(actTab).icon} color={actOf(actTab).color} title={`Monitor Punchlist — ${actOf(actTab).label}`} right={
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Btn kind="ghost" onClick={() => setReportCfg(true)}><Ic name="file" size={16} /> Simpan PDF</Btn>
           {can.manage && <Btn onClick={() => setModal({})}><Ic name="plus" size={16} /> Tambah Temuan</Btn>}
@@ -1626,27 +1880,31 @@ function Punchlist({ punch, setPunch, tasks, can, log }) {
           </div>); })}</div>}
     </Card>
     <Card>
-      <CardHead icon="alert" title="Daftar Temuan" color={C.amber} right={
+      <CardHead icon="alert" title={`Daftar Temuan — ${actOf(actTab).label}`} color={C.amber} right={
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Sel value={fStage} onChange={(e) => setFStage(e.target.value)} style={{ width: 190, padding: "7px 10px" }}><option value="">Semua tahap</option>{allStages.map((n) => <option key={n}>{n}</option>)}</Sel>
           <Sel value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ width: 135, padding: "7px 10px" }}><option value="">Semua status</option>{[PST.open, PST.prog, PST.done].map((s) => <option key={s}>{s}</option>)}</Sel>
         </div>} />
       <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
-        <thead><tr><th style={th}>Temuan</th><th style={th}>Tahap</th><th style={th}>Severity</th><th style={{ ...th, width: 150 }}>Status</th><th style={th}>Due</th><th style={{ ...th, width: 60 }}></th></tr></thead>
+        <thead><tr><th style={th}>Temuan</th><th style={th}>Tahap</th><th style={th}>Severity</th><th style={{ ...th, width: 150 }}>Status</th><th style={th}>Target</th><th style={{ ...th, width: 60 }}>Bukti</th><th style={{ ...th, width: 60 }}></th></tr></thead>
         <tbody>{list.map((p) => <tr key={p.id}>
           <td style={td}><div style={{ display: "flex", gap: 10 }}>{p.photo && <img src={p.photo} alt="" style={{ width: 42, height: 42, objectFit: "cover", borderRadius: 8, border: `1px solid ${C.line}`, flexShrink: 0 }} />}<div><div style={{ fontWeight: 600 }}>{p.title}</div>{p.loc && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>Lokasi: {p.loc}</div>}{p.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2 }}>{p.note}</div>}</div></div></td>
           <td style={{ ...td, fontSize: 12.5, color: C.slate }}>{p.stage}</td>
           <td style={td}><Pill text={p.severity} color={SEVC[p.severity]} bg={SEVC[p.severity] + "1A"} /></td>
           <td style={td}><Sel value={p.status} disabled={!can.manage} onChange={(e) => setStatus(p.id, e.target.value)} style={{ padding: "5px 8px", fontSize: 12.5, color: PMETA[p.status].color, fontWeight: 700, background: PMETA[p.status].bg, border: `1px solid ${C.line}` }}>{[PST.open, PST.prog, PST.done].map((s) => <option key={s} style={{ color: C.ink, background: "#fff" }}>{s}</option>)}</Sel></td>
           <td style={{ ...td, fontVariantNumeric: "tabular-nums", color: C.slate, whiteSpace: "nowrap" }}>{fmtDate(p.due)}</td>
+          <td style={td}>{p.proofUrl
+            ? <a href={p.proofUrl} target="_blank" rel="noreferrer" title={p.proofName} style={{ ...iconBtn, color: C.green, textDecoration: "none" }}><Ic name="file" size={15} /></a>
+            : <span style={{ fontSize: 11, color: "#B8C4D2" }}>—</span>}</td>
           <td style={td}>{can.manage && <div style={{ display: "flex", gap: 2 }}><button onClick={() => setModal({ item: p })} style={iconBtn}><Ic name="pencil" size={14} /></button><button onClick={() => { setPunch((s) => s.filter((x) => x.id !== p.id)); log && log("Hapus temuan", p.title); }} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button></div>}</td>
         </tr>)}
-        {list.length === 0 && <tr><td colSpan={6}><Empty text="Tidak ada temuan untuk filter ini." /></td></tr>}
+        {list.length === 0 && <tr><td colSpan={7}><Empty text="Tidak ada temuan untuk kegiatan / filter ini." /></td></tr>}
         </tbody></table></div>
     </Card>
-    {modal && can.manage && <PunchModal item={modal.item} stages={allStages} onSave={save} onClose={() => setModal(null)} />}
+    {modal && can.manage && <PunchModal item={modal.item} stages={allStages} act={actTab} onSave={save} onClose={() => setModal(null)} />}
+    {proof && <PunchProofModal item={proof.item} onDone={finishWithProof} onCancel={() => { setProof(null); log && log("Batal selesaikan temuan", `${proof.item.title} — status kembali ke ${proof.prev}`); }} />}
     {reportCfg && <PunchReportModal stages={allStages} defaultStage={fStage} onClose={() => setReportCfg(false)} onMake={(cfg) => { setReport(cfg); setReportCfg(false); log && log("Cetak laporan punchlist", cfg.stage || "Semua tahap"); }} />}
-    {report && <PunchReport punch={punch} stage={report.stage} loc={report.loc} onClose={() => setReport(null)} />}
+    {report && <PunchReport punch={actPunch} stage={report.stage} loc={report.loc} onClose={() => setReport(null)} />}
   </div>;
 }
 
@@ -1662,7 +1920,8 @@ function MyTaskModal({ item, users, me, isPM, onSave, onClose }) {
     onSave({ ...f, text: f.text.trim(), owner: (isPM ? (f.owner || me.email) : me.email).toLowerCase(), done: f.status === MST.done });
   };
   return <Modal title={isNew ? "Tugas Baru" : "Edit Tugas"} onClose={onClose} width={500}>
-    <Field label="Nama tugas"><Input autoFocus value={f.text} onChange={(e) => set("text", e.target.value)} placeholder="mis. Review gambar kerja Lt.21" onKeyDown={(e) => e.key === "Enter" && save()} /></Field>
+    <ReqNote />
+    <Field label="Nama tugas" req><Input autoFocus value={f.text} onChange={(e) => set("text", e.target.value)} placeholder="mis. Review gambar kerja Lt.21" onKeyDown={(e) => e.key === "Enter" && save()} /></Field>
     <div style={{ marginTop: 12 }}><Field label="Penanggung jawab">
       {isPM
         ? <Sel value={f.owner} onChange={(e) => set("owner", e.target.value)}>{users.filter((u) => u.active).map((u) => <option key={u.id} value={u.email}>{u.name} — {u.role}</option>)}</Sel>
@@ -1680,7 +1939,7 @@ function MyTaskModal({ item, users, me, isPM, onSave, onClose }) {
     </div>
   </Modal>;
 }
-function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
+function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log }) {
   const [view, setView] = useState("list");        // list | kanban
   const [scope, setScope] = useState("me");
   const [folded, setFolded] = useState({});
@@ -1689,23 +1948,57 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
   const [drag, setDrag] = useState(null);
   const me = (user.email || "").toLowerCase();
   const canEdit = isPM;                            // Admin: hanya tambah + ubah status
-  const scoped = (isPM && scope === "all") ? mytasks : mytasks.filter((t) => (t.owner || "").toLowerCase() === me);
+  /* PENUGASAN PIC: pekerjaan dari Gantt/Kanban tempat user menjadi PIC
+     ikut tampil di sini. Statusnya dua arah — diubah di sini berubah juga
+     di Gantt/Kanban, dan sebaliknya, karena sumbernya satu: state tasks. */
+  const assigned = useMemo(() => {
+    const leaves = tasks.filter((t) => !tasks.some((x) => x.parent === t.id));
+    return leaves
+      .filter((t) => (t.assignees || []).some((em) => (isPM && scope === "all") ? true : (em || "").toLowerCase() === me))
+      .map((t) => ({
+        id: "w:" + t.id, work: true, workId: t.id, text: t.name, owner: (t.assignees || [])[0] || me,
+        assignees: t.assignees || [], status: W2M[t.status] || MST.todo, prio: t.prio || "Sedang",
+        due: t.finish, note: t.note || "", act: t.act, percent: t.percent,
+        todos: t.todos || [], actualFinish: t.actualFinish || "",
+      }));
+  }, [tasks, scope, me, isPM]);
+  const personal = (isPM && scope === "all") ? mytasks : mytasks.filter((t) => (t.owner || "").toLowerCase() === me);
+  const scoped = [...assigned, ...personal];
   const userOf = (em) => users.find((u) => (u.email || "").toLowerCase() === (em || "").toLowerCase());
   const stOfT = (t) => t.status || MST.todo;
 
   const upd = (id, patch) => setMytasks((s) => s.map((t) => t.id === id ? { ...t, ...patch } : t));
   const moveTo = (id, st) => {
-    const t = mytasks.find((x) => x.id === id); if (!t || stOfT(t) === st) return;
+    const cur = scoped.find((x) => x.id === id); if (!cur || stOfT(cur) === st) return;
+    if (cur.work) {
+      /* pekerjaan: tulis balik ke tasks supaya Gantt & Kanban ikut berubah */
+      const ws = M2W[st] || STATUS.todo;
+      setTasks((s) => s.map((t) => {
+        if (t.id !== cur.workId) return t;
+        let pct = t.percent, todos = t.todos || [];
+        if (ws === STATUS.done) { pct = 100; todos = todos.map((x) => ({ ...x, done: true })); }
+        else if (ws === STATUS.todo) { pct = 0; todos = todos.map((x) => ({ ...x, done: false })); }
+        else if (ws === STATUS.doing && (pct === 0 || pct === 100)) pct = todos.length ? Math.round(todos.filter((x) => x.done).length / todos.length * 100) : 50;
+        return { ...t, status: ws, percent: pct, todos };
+      }));
+      log && log("Ubah status pekerjaan (Tugas Saya)", `${cur.text} → ${ws}`);
+      return;
+    }
     upd(id, { status: st, done: st === MST.done });
-    log && log("Ubah status tugas", `${t.text} → ${st}`);
+    log && log("Ubah status tugas", `${cur.text} → ${st}`);
   };
   const cycle = (t) => { const i = MCOLS.indexOf(stOfT(t)); moveTo(t.id, MCOLS[(i + 1) % MCOLS.length]); };
   const save = (data) => {
+    if (data.work) { setModal(null); return; }
     if (data.id) { setMytasks((s) => s.map((t) => t.id === data.id ? { ...t, ...data } : t)); log && log("Edit tugas", data.text); }
     else { setMytasks((s) => [...s, { ...data, id: uid() }]); log && log("Tambah tugas", `${data.text}${data.owner !== me ? " → " + data.owner : ""}`); }
     setModal(null);
   };
-  const del = (t) => { if (!canEdit) return; if (!window.confirm(`Hapus tugas "${t.text}"?`)) return; setMytasks((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus tugas", t.text); };
+  const del = (t) => {
+    if (!canEdit || t.work) return;
+    if (!window.confirm(`Hapus tugas "${t.text}"?`)) return;
+    setMytasks((s) => s.filter((x) => x.id !== t.id)); log && log("Hapus tugas", t.text);
+  };
 
   const dragProps = (t) => ({
     draggable: true,
@@ -1733,7 +2026,7 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
 
   return <div className="g1">
     <div className="g4">
-      <Stat label="Total Tugas" value={total} icon="tasks" color={C.ink} />
+      <Stat label="Total Tugas" value={total} sub={`${assigned.length} dari pekerjaan · ${personal.length} pribadi`} icon="tasks" color={C.ink} />
       <Stat label={MST.done} value={done} sub={total ? Math.round(done / total * 100) + "% tuntas" : "—"} icon="check" color={MMETA[MST.done].bar} />
       <Stat label={MST.doing} value={scoped.filter((t) => stOfT(t) === MST.doing).length} icon="half" color={MMETA[MST.doing].bar} />
       <Stat label="Lewat Tenggat" value={late} icon="alert" color={C.red} />
@@ -1771,8 +2064,8 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
         const m = MMETA[st];
         const hidden = folded[st];
         const isOver = over === st;
-        return <div key={st} {...dropProps(st)} style={{ borderBottom: `1px solid ${C.line}`, background: isOver ? m.bg : "transparent", transition: ".12s" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", background: isOver ? m.bg : m.head, borderLeft: `4px solid ${m.bar}` }}>
+        return <div key={st} {...dropProps(st)} style={{ margin: "14px 16px", border: `1px solid ${isOver ? m.bar : m.line}`, borderRadius: 14, overflow: "hidden", background: isOver ? m.bg : "#fff", boxShadow: "0 1px 3px rgba(16,42,67,.05)", transition: ".12s" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 14px", background: isOver ? m.bg : m.head, borderLeft: `4px solid ${m.bar}` }}>
             <button onClick={() => setFolded((s) => ({ ...s, [st]: !s[st] }))} style={{ ...iconBtn, padding: 2, color: m.color, transform: hidden ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={15} /></button>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800, color: m.color, background: m.bg, borderRadius: 99, padding: "4px 11px" }}><Ic name={m.icon} size={12} /> {st}</span>
             <span style={{ fontSize: 11.5, color: m.color, fontWeight: 700 }}>{items.length}</span>
@@ -1792,8 +2085,16 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
                       <span style={{ color: "#B8C4D2", flexShrink: 0, display: "grid", placeItems: "center" }} title="Seret untuk pindah status"><Ic name="grip" size={14} /></span>
                       <StatusDot t={t} m={m} />
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: st === MST.done ? C.slate : C.ink, textDecoration: st === MST.done ? "line-through" : "none" }}>{t.text}</div>
-                        {t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 340 }}>{t.note}</div>}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13.5, fontWeight: 600, color: st === MST.done ? C.slate : C.ink, textDecoration: st === MST.done ? "line-through" : "none" }}>{t.text}</span>
+                          {t.work && <Chip text={actOf(t.act).label} c={actOf(t.act).color} b={actOf(t.act).soft} dot />}
+                        </div>
+                        {t.work
+                          ? <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 4, maxWidth: 280 }}>
+                              <span style={{ flex: 1 }}><Bar pct={t.percent} color={m.bar} /></span>
+                              <span style={{ fontSize: 10.5, fontWeight: 700, color: C.slate, whiteSpace: "nowrap" }}>{(t.todos || []).filter((x) => x.done).length}/{(t.todos || []).length} to-do · {t.percent}%</span>
+                            </div>
+                          : t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 340 }}>{t.note}</div>}
                       </div>
                     </div></td>
                     <td style={td}><OwnerCell owner={t.owner} /></td>
@@ -1802,8 +2103,8 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
                       : <span style={{ fontSize: 12, color: "#A9B7C6" }}>—</span>}</td>
                     <td style={td}><PrioChip prio={t.prio || "Sedang"} /></td>
                     <td style={td}><div style={{ display: "flex", gap: 2 }}>
-                      <button title={canEdit ? "Edit tugas" : "Lihat tugas"} onClick={() => setModal({ item: t })} style={{ ...iconBtn, color: canEdit ? C.violet : C.slate }}><Ic name={canEdit ? "pencil" : "eye"} size={14} /></button>
-                      {canEdit && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>}
+                      <button title={t.work ? "Lihat detail pekerjaan" : (canEdit ? "Edit tugas" : "Lihat tugas")} onClick={() => setModal({ item: t })} style={{ ...iconBtn, color: (canEdit && !t.work) ? C.violet : C.slate }}><Ic name={(canEdit && !t.work) ? "pencil" : "eye"} size={14} /></button>
+                      {canEdit && !t.work && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>}
                     </div></td>
                   </tr>;
                 })}
@@ -1819,7 +2120,7 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
 
       {/* ---------- TAMPILAN KANBAN ---------- */}
       {view === "kanban" && <div style={{ padding: 16 }}>
-        <div className="g3">
+        <div className="g4">
           {MCOLS.map((st) => {
             const items = scoped.filter((t) => stOfT(t) === st);
             const m = MMETA[st];
@@ -1838,10 +2139,11 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
                     style={{ background: "#fff", border: `1px solid ${m.line}`, borderLeft: `3px solid ${m.bar}`, borderRadius: 12, padding: "11px 12px", cursor: "grab", opacity: drag === t.id ? .5 : 1, boxShadow: "0 1px 3px rgba(16,42,67,.06)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
                       <PrioChip prio={t.prio || "Sedang"} />
+                      {t.work && <Chip text={actOf(t.act).label} c={actOf(t.act).color} b={actOf(t.act).soft} dot />}
                       {isLate && <Chip text="Terlambat" c={C.red} b="#FDECEF" />}
                       <span style={{ marginLeft: "auto", display: "flex", gap: 1 }}>
-                        <button title={canEdit ? "Edit" : "Lihat"} onClick={() => setModal({ item: t })} style={{ ...iconBtn, padding: 3, color: canEdit ? C.violet : C.slate }}><Ic name={canEdit ? "pencil" : "eye"} size={13} /></button>
-                        {canEdit && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, padding: 3, color: C.red }}><Ic name="trash" size={13} /></button>}
+                        <button title={t.work ? "Lihat detail" : (canEdit ? "Edit" : "Lihat")} onClick={() => setModal({ item: t })} style={{ ...iconBtn, padding: 3, color: (canEdit && !t.work) ? C.violet : C.slate }}><Ic name={(canEdit && !t.work) ? "pencil" : "eye"} size={13} /></button>
+                        {canEdit && !t.work && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, padding: 3, color: C.red }}><Ic name="trash" size={13} /></button>}
                       </span>
                     </div>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
@@ -1866,7 +2168,7 @@ function MyTasks({ mytasks, setMytasks, users, user, isPM, log }) {
       </div>}
     </Card>
 
-    {modal && (canEdit || !modal.item)
+    {modal && (canEdit || !modal.item) && !(modal.item && modal.item.work)
       ? <MyTaskModal item={modal.item ? { ...modal.item } : (modal.status ? { text: "", owner: me, status: modal.status, prio: "Sedang", due: "", note: "" } : null)}
           users={users} me={{ email: me, name: user.name }} isPM={isPM} onSave={save} onClose={() => setModal(null)} />
       : modal && <MyTaskView task={modal.item} owner={userOf(modal.item.owner)} onClose={() => setModal(null)} />}
@@ -1883,11 +2185,22 @@ function MyTaskView({ task, owner, onClose }) {
     {row("Penanggung jawab", owner ? owner.name : task.owner)}
     {row("Prioritas", <PrioChip prio={task.prio || "Sedang"} />)}
     {row("Tenggat", task.due ? fmtDate(task.due) : "—")}
+    {task.work && row("Kegiatan", <Chip text={actOf(task.act).label} c={actOf(task.act).color} b={actOf(task.act).soft} dot />)}
+    {task.work && row("Progres", <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 90 }}><Bar pct={task.percent} color={C.violet} /></span>{task.percent}%</span>)}
+    {task.work && (task.todos || []).length > 0 && <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 5 }}>To-do pekerjaan</div>
+      <div style={{ display: "grid", gap: 4 }}>
+        {task.todos.map((x) => <div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: x.done ? C.slate : C.ink }}>
+          <span style={{ width: 16, height: 16, borderRadius: 5, border: `2px solid ${x.done ? C.green : "#C7D2DE"}`, background: x.done ? C.green : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>{x.done && <Ic name="check" size={9} />}</span>
+          <span style={{ textDecoration: x.done ? "line-through" : "none" }}>{x.text}</span>
+        </div>)}
+      </div>
+    </div>}
     <div style={{ marginTop: 12 }}>
       <div style={{ fontSize: 12, color: C.slate, marginBottom: 5 }}>Catatan</div>
       <div style={{ fontSize: 13, color: task.note ? C.ink : C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", whiteSpace: "pre-wrap", minHeight: 50 }}>{task.note || "Tidak ada catatan."}</div>
     </div>
-    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 12 }}>Role Admin hanya dapat mengubah status tugas — klik lingkaran status atau seret kartunya.</div>
+    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 12 }}>{task.work ? "Item ini berasal dari penugasan PIC di Gantt/Kanban. Perubahan status di sini otomatis tersinkron ke sana. Detail lain diubah lewat menu kegiatan." : "Role Admin hanya dapat mengubah status tugas — klik lingkaran status atau seret kartunya."}</div>
     <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><Btn kind="ghost" onClick={onClose}>Tutup</Btn></div>
   </Modal>;
 }
@@ -1926,13 +2239,14 @@ function UserModal({ item, existing, onSave, onClose }) {
     setBusy(false);
   };
   return <Modal title={isNew ? "Tambah User Baru" : "Edit User"} onClose={onClose} width={500}>
-    <Field label="Nama lengkap"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
-    <div style={{ marginTop: 12 }}><Field label="Email (dipakai untuk login)">
+    <ReqNote />
+    <Field label="Nama lengkap" req><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
+    <div style={{ marginTop: 12 }}><Field label="Email (dipakai untuk login)" req>
       <Input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} disabled={!isNew} placeholder="nama@perusahaan.com" />
     </Field>{!isNew && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Email tidak bisa diubah karena terikat ke akun login.</div>}</div>
     {isNew && <div className="g2" style={{ marginTop: 12 }}>
-      <Field label="Password awal (min. 8 karakter)"><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" /></Field>
-      <Field label="Ulangi password"><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="••••••••" /></Field>
+      <Field label="Password awal (min. 8 karakter)" req><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" /></Field>
+      <Field label="Ulangi password" req><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="••••••••" /></Field>
     </div>}
     <div className="g2" style={{ marginTop: 12 }}>
       <Field label="Role"><Sel value={f.role} onChange={(e) => set("role", e.target.value)}>{[ROLE.pm, ROLE.admin].map((r) => <option key={r}>{r}</option>)}</Sel></Field>
@@ -2017,7 +2331,8 @@ function ActModal({ item, acts, onSave, onClose }) {
     onSave({ ...f, label });
   };
   return <Modal title={isNew ? "Tambah Kegiatan" : "Edit Kegiatan"} onClose={onClose} width={520}>
-    <Field label="Nama kegiatan"><Input autoFocus value={f.label} onChange={(e) => set("label", e.target.value)} placeholder="mis. SmartOffice" onKeyDown={(e) => e.key === "Enter" && save()} /></Field>
+    <ReqNote />
+    <Field label="Nama kegiatan" req><Input autoFocus value={f.label} onChange={(e) => set("label", e.target.value)} placeholder="mis. SmartOffice" onKeyDown={(e) => e.key === "Enter" && save()} /></Field>
     <div style={{ marginTop: 14 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Warna identitas</div>
       <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -2230,9 +2545,31 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
   const A2 = actOf(act);
   const updTask = (id, patch) => setTasks((s) => s.map((t) => { if (t.id !== id) return t; const n = { ...t, ...patch }; if ("percent" in patch && n.status !== STATUS.cancel) n.status = stOf(n.percent); return n; }));
   const saveTask = (data) => {
-    if (data.id) { setTasks((s) => s.map((t) => t.id === data.id ? { ...t, ...data } : t)); log && log("Edit pekerjaan", `${A2.label}: ${data.name}`); }
-    else { setTasks((s) => [...s, { ...data, id: uid(), note: data.note || "", assignees: data.assignees || [] }]); log && log("Tambah pekerjaan", `${A2.label}: ${data.name}`); }
+    const succ = data._succ || null; const d = { ...data }; delete d._succ;
+    setTasks((s) => {
+      let next = d.id ? s.map((t) => t.id === d.id ? { ...t, ...d } : t) : [...s, { ...d, id: uid(), note: d.note || "", assignees: d.assignees || [] }];
+      const myId = d.id;
+      if (myId && succ) {
+        /* successor disimpan sebagai predecessor pada pekerjaan tujuan */
+        next = next.map((t) => {
+          const has = (t.pred || []).indexOf(myId) >= 0;
+          const want = succ.indexOf(t.id) >= 0;
+          if (want && !has) return { ...t, pred: [...(t.pred || []), myId] };
+          if (!want && has) return { ...t, pred: (t.pred || []).filter((x) => x !== myId) };
+          return t;
+        });
+      }
+      return next;
+    });
+    log && log(d.id ? "Edit pekerjaan" : "Tambah pekerjaan", `${A2.label}: ${d.name}`);
     setModal(null);
+  };
+  const reschedule = () => {
+    const r = recalcSchedule(tasks);
+    if (r.cycle) { window.alert("Ada ketergantungan melingkar — perbaiki dulu predecessor-nya."); return; }
+    if (!r.moved) { window.alert("Semua jadwal sudah sesuai ketergantungan. Tidak ada yang perlu digeser."); return; }
+    if (!window.confirm(`${r.moved} pekerjaan akan digeser mengikuti predecessor dan tanggal penyelesaian aktual.\n\nLanjutkan?`)) return;
+    setTasks(r.tasks); log && log("Jadwalkan ulang", `${r.moved} pekerjaan bergeser`);
   };
   const delTask = (id) => {
     const t = tasks.find((x) => x.id === id);
@@ -2259,17 +2596,21 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
   const counts = {}; KCOLS.forEach((k) => (counts[k] = 0));
   leaves.forEach((t) => (counts[t.status] = (counts[t.status] || 0) + 1));
   const pct = progressOf(tasks, act);
+  const predFin = useMemo(() => predictFinish(tasks, act), [tasks, act]);
+  const planFin = useMemo(() => { let mx = null; leaves.forEach((t) => { if (t.status === STATUS.cancel) return; const f = D(t.finish); if (!mx || f > mx) mx = f; }); return mx ? iso(mx) : null; }, [tasks, act]);
+  const lateN = leaves.filter((t) => lateDays(t) > 0).length;
   const TabBtn = ({ id, icon, label }) => <button onClick={() => setTab(id)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, border: `1px solid ${tab === id ? C.violet : C.line}`, background: tab === id ? C.violetSoft : "#fff", color: tab === id ? C.violet : C.slate, fontWeight: 700, fontSize: 13, cursor: "pointer" }}><Ic name={icon} size={15} /> {label}</button>;
   return <div className="g1">
     <div className="g4">
       <Stat label="Progres Kegiatan" value={pct + "%"} sub={`${list.filter((t) => !t.parent).length} pekerjaan · ${leaves.length} item`} icon="trending" color={A2.color} />
-      <Stat label={STATUS.doing} value={counts[STATUS.doing]} icon="kanban" color={C.blue} />
-      <Stat label={STATUS.done} value={counts[STATUS.done]} icon="check" color={C.green} />
-      <Stat label={STATUS.cancel} value={counts[STATUS.cancel]} icon="x" color={C.red} />
+      <Stat label="Prediksi Selesai" value={predFin ? fmtDate(predFin) : "-"} sub={planFin && predFin && predFin !== planFin ? `mundur ${days(D(planFin), D(predFin))} hari dari rencana` : "sesuai rencana"} icon="calendar" color={planFin && predFin && D(predFin) > D(planFin) ? C.red : C.green} />
+      <Stat label="Telat" value={lateN} sub="pekerjaan lewat rencana" icon="alert" color={lateN ? C.red : C.slate} />
+      <Stat label={STATUS.done} value={counts[STATUS.done]} sub={`${counts[STATUS.doing]} berjalan · ${counts[STATUS.cancel]} batal`} icon="check" color={C.green} />
     </div>
     <Card>
       <CardHead icon={A2.icon} color={A2.color} title={`Kegiatan ${A2.label}`} right={
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {can.manage && <Btn kind="ghost" onClick={reschedule} title="Geser jadwal mengikuti predecessor & penyelesaian aktual"><Ic name="history" size={16} /> Jadwalkan Ulang</Btn>}
           {tab === "gantt" && <Btn kind="ghost" onClick={onExport} disabled={exporting}><Ic name="download" size={16} /> {exporting ? "Menyiapkan…" : "Unduh PNG"}</Btn>}
           {can.manage && <Btn onClick={() => setModal({ task: null })}><Ic name="plus" size={16} /> Tambah Pekerjaan</Btn>}
         </div>} />
@@ -2592,7 +2933,7 @@ function App() {
         {page === "biaya" && <Costs rab={rab} setRab={setRab} trans={trans} setTrans={setTrans} acosts={acosts} setAcosts={setAcosts} fee={fee} setFee={setFee} terms={terms} setTerms={setTerms} can={can} log={log} />}
         {page === "punchlist" && <Punchlist punch={punch} setPunch={setPunch} tasks={tasks} can={can} log={log} />}
         {page === "arsip" && <Arsip docs={docs} setDocs={setDocs} log={log} />}
-        {page === "mytasks" && <MyTasks mytasks={mytasks} setMytasks={setMytasks} users={users} user={user} isPM={isPM} log={log} />}
+        {page === "mytasks" && <MyTasks mytasks={mytasks} setMytasks={setMytasks} tasks={tasks} setTasks={setTasks} users={users} user={user} isPM={isPM} log={log} />}
         {page === "logs" && <Logs logs={logs} />}
         {page === "acts" && isPM && <ActsPage acts={acts} setActs={setActs} tasks={tasks} setTasks={setTasks} acosts={acosts} setAcosts={setAcosts} log={log} onOpen={go} />}
         {page === "users" && isPM && <UsersPage users={users} setUsers={setUsers} mytasks={mytasks} me={user} log={log} />}
