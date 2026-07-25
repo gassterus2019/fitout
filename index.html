@@ -404,7 +404,7 @@ async function portalLogin(username, password) {
     return { ok: false, msg: "Username tidak ditemukan. Periksa ejaannya, atau minta Project Management membuatkan akun." };
   }
   if (row.active === false) return { ok: false, msg: "Akses akun ini sedang dinonaktifkan. Hubungi Project Management." };
-  if (!row.password_hash || !row.password_salt) return { ok: false, msg: "Akun belum memiliki password. Minta Project Management mengatur ulang." };
+  if (!row.password_hash || !row.password_salt) return { ok: false, needSetup: true, user: userFromRow(row) };
   const h = await hashPassword(password, row.password_salt);
   if (h !== row.password_hash) return { ok: false, msg: "Password salah." };
   return { ok: true, user: userFromRow(row) };
@@ -422,6 +422,11 @@ async function portalDeleteUser(id) {
   if (!LIVE) return { ok: true };
   const { error } = await sb.from("app_users").delete().eq("id", id);
   return error ? { ok: false, msg: error.message } : { ok: true };
+}
+async function usersEmpty() {
+  if (!LIVE) return false;
+  try { const { data, error } = await sb.from("app_users").select("id").eq("project_key", PROJECT_KEY).limit(1); if (error) return null; return !(data && data.length); }
+  catch (e) { return null; }
 }
 async function usernameTaken(un) {
   if (!LIVE) return SEED_USERS.some((x) => uname(x) === un);
@@ -711,35 +716,95 @@ function Empty({ text }) { return <div style={{ textAlign: "center", color: C.sl
 /* ===== LOGIN ===== */
 function Login({ onLogin, live }) {
   const [u, setU] = useState(""), [p, setP] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("login");     // login | activate | first
+  const [acc, setAcc] = useState(null);          // akun yang sedang diaktifkan
+  const [p2, setP2] = useState("");
+  const [name, setName] = useState(""), [role, setRole] = useState(ROLE.pm);
+
+  useEffect(() => { if (!live) return; usersEmpty().then((e) => { if (e === true) setMode("first"); }); }, []);
+
   const submit = async () => {
     setErr("");
     if (!u.trim() || !p) { setErr("Username dan password wajib diisi."); return; }
     setBusy(true);
     try {
       const r = await portalLogin(u, p);
-      if (r.ok) { onLogin(r.user); } else { setErr(r.msg || "Gagal masuk."); setBusy(false); }
+      if (r.ok) { onLogin(r.user); return; }
+      if (r.needSetup) { setAcc(r.user); setP2(""); setMode("activate"); setBusy(false); return; }
+      setErr(r.msg || "Gagal masuk."); setBusy(false);
     } catch (e) { setErr("Gagal terhubung ke server: " + (e.message || "")); setBusy(false); }
   };
-  return <div style={{ minHeight: "100vh", background: `linear-gradient(135deg,${C.blueSoft},${C.greenSoft})`, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+  const activate = async () => {
+    setErr("");
+    if (p.length < 8) { setErr("Password minimal 8 karakter."); return; }
+    if (p !== p2) { setErr("Konfirmasi password tidak sama."); return; }
+    setBusy(true);
+    try {
+      const r = await portalUpsertUser(acc, p);
+      if (!r.ok) { setErr(r.msg || "Gagal menyimpan password."); setBusy(false); return; }
+      onLogin(acc);
+    } catch (e) { setErr("Gagal: " + (e.message || "")); setBusy(false); }
+  };
+  const createFirst = async () => {
+    setErr("");
+    const un = u.trim().toLowerCase();
+    if (!name.trim()) { setErr("Nama wajib diisi."); return; }
+    if (!validUser(un)) { setErr("Username 3–24 karakter: huruf kecil, angka, titik, _ atau -."); return; }
+    if (p.length < 8) { setErr("Password minimal 8 karakter."); return; }
+    if (p !== p2) { setErr("Konfirmasi password tidak sama."); return; }
+    setBusy(true);
+    try {
+      const user = { id: uid(), name: name.trim(), username: un, role, active: true };
+      const r = await portalUpsertUser(user, p);
+      if (!r.ok) { setErr(r.msg || "Gagal membuat akun."); setBusy(false); return; }
+      onLogin(user);
+    } catch (e) { setErr("Gagal: " + (e.message || "")); setBusy(false); }
+  };
+
+  const wrap = (title, sub, body) => <div style={{ minHeight: "100vh", background: `linear-gradient(135deg,${C.blueSoft},${C.greenSoft})`, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
     <div style={{ width: 400, maxWidth: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18, justifyContent: "center" }}>
         <Logo size={40} radius={11} />
         <div><div style={{ fontWeight: 800, fontSize: 18, color: C.ink }}>Fit Out Control & Monitoring</div><div style={{ fontSize: 12, color: C.slate }}>General Affairs Dept.</div></div>
       </div>
       <div style={{ background: "#fff", borderRadius: 18, padding: 26, boxShadow: "0 20px 50px rgba(10,108,184,.14)" }}>
-        <div style={{ fontWeight: 700, fontSize: 19, color: C.ink }}>Selamat datang</div>
-        <div style={{ fontSize: 13, color: C.slate, marginBottom: 12, marginTop: 2 }}>{live ? "Masuk dengan username & password portal." : "Mode DEMO — pilih akun contoh di bawah."}</div>
-        <Field label="Username" req><Input type="text" value={u} onChange={(e) => setU(e.target.value.toLowerCase())} placeholder="mis. rardhan" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
-        <div style={{ height: 12 }} />
-        <Field label="Password" req><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
-        {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
-        <Btn onClick={submit} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : "Masuk"} {!busy && <Ic name="arrow" size={16} />}</Btn>
-        {!live && <div className="g2" style={{ marginTop: 14 }}>
-          {SEED_USERS.map((x) => <button key={x.username} onClick={() => { setU(uname(x)); setP(uname(x) + "123"); setErr(""); }} style={{ textAlign: "left", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 11, background: C.bg, cursor: "pointer" }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{x.role}</div><div style={{ fontSize: 11, color: C.slate }}>{uname(x)} / {uname(x)}123</div></button>)}
-        </div>}
+        <div style={{ fontWeight: 700, fontSize: 19, color: C.ink }}>{title}</div>
+        <div style={{ fontSize: 13, color: C.slate, marginBottom: 14, marginTop: 2 }}>{sub}</div>
+        {body}
+        {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{err}</div>}
       </div>
     </div>
   </div>;
+
+  if (mode === "activate") return wrap("Aktivasi Akun", `Akun “${acc.name}” (${uname(acc)}) belum punya password. Buat sekarang untuk masuk.`, <>
+    <Field label="Password baru" req><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="minimal 8 karakter" autoFocus /></Field>
+    <div style={{ height: 12 }} />
+    <Field label="Konfirmasi password" req><Input type="password" value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && activate()} /></Field>
+    <Btn onClick={activate} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Menyimpan…" : "Aktifkan & Masuk"}</Btn>
+    <button onClick={() => { setMode("login"); setErr(""); setP(""); }} style={{ width: "100%", background: "none", border: "none", color: C.slate, fontSize: 12.5, marginTop: 10, cursor: "pointer" }}>← Kembali</button>
+  </>);
+
+  if (mode === "first") return wrap("Buat Akun Admin Pertama", "Belum ada akun di portal ini. Buat akun Project Management pertama untuk mulai.", <>
+    <Field label="Nama Karyawan" req><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="mis. Budi Santoso" autoFocus /></Field>
+    <div style={{ height: 12 }} />
+    <Field label="Username" req><Input value={u} onChange={(e) => setU(e.target.value.toLowerCase())} placeholder="mis. budi" /></Field>
+    <div className="g2" style={{ marginTop: 12 }}>
+      <Field label="Password" req><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="min. 8 karakter" /></Field>
+      <Field label="Ulangi" req><Input type="password" value={p2} onChange={(e) => setP2(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createFirst()} /></Field>
+    </div>
+    <div style={{ marginTop: 12 }}><Field label="Role"><Sel value={role} onChange={(e) => setRole(e.target.value)}>{[ROLE.pm, ROLE.admin].map((r) => <option key={r}>{r}</option>)}</Sel></Field></div>
+    <Btn onClick={createFirst} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Membuat…" : "Buat & Masuk"}</Btn>
+  </>);
+
+  return wrap("Selamat datang", live ? "Masuk dengan username & password portal." : "Mode DEMO — pilih akun contoh di bawah.", <>
+    <Field label="Username" req><Input type="text" value={u} onChange={(e) => setU(e.target.value.toLowerCase())} placeholder="mis. rardhan" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+    <div style={{ height: 12 }} />
+    <Field label="Password" req><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+    <Btn onClick={submit} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : "Masuk"} {!busy && <Ic name="arrow" size={16} />}</Btn>
+    {!live && <div className="g2" style={{ marginTop: 14 }}>
+      {SEED_USERS.map((x) => <button key={x.username} onClick={() => { setU(uname(x)); setP(uname(x) + "123"); setErr(""); }} style={{ textAlign: "left", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 11, background: C.bg, cursor: "pointer" }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{x.role}</div><div style={{ fontSize: 11, color: C.slate }}>{uname(x)} / {uname(x)}123</div></button>)}
+    </div>}
+  </>);
 }
 
 /* ===== HIRARKI TUGAS ===== */
