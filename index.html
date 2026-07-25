@@ -115,6 +115,10 @@ const ACT_PALETTE = [
 const ACT_ICON_CHOICES = ["compass", "hat", "truck", "calendar", "kanban", "clipboard", "folder", "dashboard", "trending", "dollar", "users", "file"];
 const slugKey = (label) => (label || "").toLowerCase().normalize("NFD").replace(/[^\w\s-]/g, "").trim().replace(/[\s_-]+/g, "-").slice(0, 24) || "kegiatan";
 
+/* Aturan username portal: 3–24 karakter, huruf kecil/angka/titik/_/-. */
+const RE_USER = /^[a-z0-9._-]{3,24}$/;
+const validUser = (v) => RE_USER.test((v || "").trim().toLowerCase());
+
 /* ROLE */
 const ROLE = { pm: "Project Management", admin: "Admin" };
 
@@ -324,8 +328,8 @@ const SEED_PUNCH = [
   { id: uid(), act: "konsultan", title: "Revisi tata letak ruang rapat", stage: "Pengembangan Desain", loc: "Lt.22", severity: "Sedang", status: PST.done, due: "2026-07-04", note: "Sudah disetujui owner.", photo: null, proofUrl: null, proofName: null },
 ];
 const SEED_USERS = [
-  { id: uid(), name: "Project Manager", username: "pm", email: "pm@mrt.co.id", role: ROLE.pm, active: true },
-  { id: uid(), name: "Admin Proyek", username: "admin", email: "admin@mrt.co.id", role: ROLE.admin, active: true },
+  { id: uid(), name: "Project Manager", username: "pm", role: ROLE.pm, active: true },
+  { id: uid(), name: "Admin Proyek", username: "admin", role: ROLE.admin, active: true },
 ];
 const SEED_MYTASKS = [
   { id: uid(), owner: "pm@mrt.co.id", text: "Review gambar kerja Lt.21", done: false, status: MST.doing, prio: "Tinggi", due: "2026-07-28" },
@@ -347,48 +351,75 @@ const PROJECT_KEY = "MRT-FO-2026";
 const BUCKET = "project-files";
 
 const LIVE = !!(SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase !== "undefined" && supabase.createClient);
-const sb = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
-/* Klien terpisah khusus pendaftaran akun: persistSession=false supaya membuat
-   user baru TIDAK menggeser sesi login orang yang sedang memakai portal. */
-const sbSignup = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "pch-signup" },
+const sb = LIVE ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
 }) : null;
 
-/* Buat akun login langsung dari portal (memakai anon key + Auth signUp).
-   Catatan: menghapus akun Auth secara permanen butuh service_role, jadi
-   penghapusan dari portal = mencabut akses (baris app_users dihapus),
-   dan login user tersebut akan ditolak oleh gerbang akses di App. */
-/* Portal memakai USERNAME, bukan email. Username dipetakan ke alamat semu
-   "<username>@mrt-portal.local" hanya untuk sistem autentikasi Supabase —
-   user tidak pernah melihat atau perlu mengisi email. */
-/* Domain semu untuk memetakan username -> akun Supabase.
-   HARUS memakai TLD yang sah. "mrt-portal.local" DITOLAK Supabase karena
-   ".local" bukan TLD publik. "example.com" dipesan oleh RFC 2606 sehingga
-   tidak mungkin dimiliki siapa pun dan formatnya pasti valid.
-   Bila Supabase-mu tetap menolak, ganti saja dengan domain lain yang wajar,
-   mis. "mrtportal.co.id" — tidak ada surel yang benar-benar dikirim. */
-const PORTAL_DOMAIN = "example.com";
-const toAuthEmail = (u) => { const v = (u || "").trim().toLowerCase(); return v.indexOf("@") >= 0 ? v : v + "@" + PORTAL_DOMAIN; };
-const fromAuthEmail = (e) => { const v = (e || "").toLowerCase(); return v.indexOf("@" + PORTAL_DOMAIN) > 0 ? v.split("@")[0] : v; };
-const RE_USER = /^[a-zA-Z0-9._-]{3,24}$/;
-const RE_MAIL = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
-/* terima DUA bentuk: username biasa, atau alamat email lengkap */
-const validLogin = (v) => { const x = (v || "").trim(); return x.indexOf("@") >= 0 ? RE_MAIL.test(x) : RE_USER.test(x); };
-const uname = (u) => (u && u.username) ? u.username : fromAuthEmail(u && u.email);
+/* =========================================================================
+   AUTENTIKASI MANDIRI (tanpa Supabase Auth) — pola seperti CRM GA.
+   Login diverifikasi terhadap tabel app_users: password disimpan sebagai
+   hash PBKDF2-SHA256 (100.000 iterasi) + salt acak per user. Tidak ada
+   email, tidak ada verifikasi, tidak ada rate limit. Buat akun cukup dari
+   menu Manajemen User.
+   ------------------------------------------------------------------------
+   Konsekuensi keamanan (disetujui): karena portal statis (GitHub Pages),
+   anon key ada di source dan RLS terbuka untuk anon. Hash password tetap
+   melindungi dari pembacaan password langsung, tetapi data proyek dapat
+   diakses siapa pun yang memiliki URL + anon key.
+   ========================================================================= */
+const PBKDF2_ITER = 100000;
+const _hex = (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+function genSalt() { const a = new Uint8Array(16); (window.crypto || {}).getRandomValues && window.crypto.getRandomValues(a); return _hex(a.buffer); }
+async function hashPassword(password, saltHex) {
+  const enc = new TextEncoder();
+  const salt = new Uint8Array((saltHex.match(/.{1,2}/g) || []).map((h) => parseInt(h, 16)));
+  const key = await window.crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await window.crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: PBKDF2_ITER, hash: "SHA-256" }, key, 256);
+  return _hex(bits);
+}
+/* username dipakai sebagai identitas login; email tak lagi dibutuhkan */
+const uname = (u) => (u && u.username) ? String(u.username).toLowerCase() : ((u && u.email) ? String(u.email).toLowerCase().split("@")[0] : "");
+const SESSION_KEY = "pch-session";
+function saveSession(u) { try { localStorage.setItem(SESSION_KEY, JSON.stringify({ id: u.id, username: uname(u), ts: Date.now() })); } catch (e) {} }
+function readSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) { return null; } }
+function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
 
-async function portalCreateUser(email, password) {
-  if (!LIVE) return { created: true, demo: true };
-  const addr = toAuthEmail(email);
-  const { data, error } = await sbSignup.auth.signUp({ email: addr, password });
-  if (error) {
-    if (/invalid/i.test(error.message || "") && /email/i.test(error.message || "")) {
-      throw new Error(`Supabase menolak alamat "${addr}". Ganti nilai PORTAL_DOMAIN di bagian atas index.html dengan domain ber-TLD wajar (mis. "mrtportal.co.id"), lalu coba lagi.`);
-    }
-    throw new Error(error.message);
+/* verifikasi login terhadap app_users */
+async function portalLogin(username, password) {
+  const un = (username || "").trim().toLowerCase();
+  if (!LIVE) { // mode DEMO: cocokkan ke SEED_USERS tanpa hash
+    const u = SEED_USERS.find((x) => uname(x) === un);
+    if (u && password === (un + "123")) return { ok: true, user: u };
+    return { ok: false, msg: "Mode DEMO: coba " + SEED_USERS.map((x) => uname(x)).join(" / ") + " dengan password <username>123." };
   }
-  const u = data && data.user;
-  if (u && Array.isArray(u.identities) && u.identities.length === 0) return { created: false, exists: true };
-  return { created: true, needConfirm: !!(u && !data.session) };
+  const { data, error } = await sb.from("app_users").select("*").eq("project_key", PROJECT_KEY).eq("username", un).limit(1);
+  if (error) return { ok: false, msg: "Gagal menghubungi server: " + error.message };
+  const row = data && data[0];
+  if (!row) return { ok: false, msg: "Username tidak ditemukan." };
+  if (row.active === false) return { ok: false, msg: "Akses akun ini sedang dinonaktifkan. Hubungi Project Management." };
+  if (!row.password_hash || !row.password_salt) return { ok: false, msg: "Akun belum memiliki password. Minta Project Management mengatur ulang." };
+  const h = await hashPassword(password, row.password_salt);
+  if (h !== row.password_hash) return { ok: false, msg: "Password salah." };
+  return { ok: true, user: userFromRow(row) };
+}
+/* buat / perbarui akun langsung di app_users (dengan hash) */
+async function portalUpsertUser(u, plainPassword) {
+  const row = userToRow(u);
+  if (plainPassword) { const salt = genSalt(); row.password_salt = salt; row.password_hash = await hashPassword(plainPassword, salt); }
+  if (!LIVE) return { ok: true };
+  const { error } = await sb.from("app_users").upsert(row);
+  if (error) return { ok: false, msg: error.message };
+  return { ok: true };
+}
+async function portalDeleteUser(id) {
+  if (!LIVE) return { ok: true };
+  const { error } = await sb.from("app_users").delete().eq("id", id);
+  return error ? { ok: false, msg: error.message } : { ok: true };
+}
+async function usernameTaken(un) {
+  if (!LIVE) return SEED_USERS.some((x) => uname(x) === un);
+  const { data } = await sb.from("app_users").select("id").eq("project_key", PROJECT_KEY).eq("username", un).limit(1);
+  return !!(data && data.length);
 }
 
 /* --- pemetaan field aplikasi <-> kolom DB --- */
@@ -407,8 +438,8 @@ const actToRow = (a) => ({ id: a.id, key: a.key, label: a.label, color: a.color,
 const actFromRow = (r) => ({ id: r.id, key: r.key, label: r.label, color: r.color || C.blue, soft: r.soft || C.blueSoft, icon: r.icon || "kanban", builtin: !!r.builtin });
 const acostToRow = (r) => ({ id: r.id, act: r.act, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
 const acostFromRow = (r) => ({ id: r.id, act: r.act, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start: r.start_date, finish: r.finish_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
-const userToRow = (u) => ({ id: u.id, name: u.name, username: (u.username || fromAuthEmail(u.email) || "").toLowerCase(), email: (u.email || "").toLowerCase(), role: u.role, active: !!u.active });
-const userFromRow = (r) => ({ id: r.id, name: r.name, username: r.username || fromAuthEmail(r.email), email: r.email || "", role: r.role || ROLE.admin, active: r.active !== false });
+const userToRow = (u) => ({ id: u.id, project_key: PROJECT_KEY, name: u.name, username: (u.username || "").toLowerCase(), role: u.role, active: !!u.active, password_hash: u.password_hash || null, password_salt: u.password_salt || null });
+const userFromRow = (r) => ({ id: r.id, name: r.name, username: (r.username || "").toLowerCase(), role: r.role || ROLE.admin, active: r.active !== false, password_hash: r.password_hash || null, password_salt: r.password_salt || null });
 const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done, status: t.status || (t.done ? MST.done : MST.todo), prio: t.prio || "Sedang", due_date: t.due || null, note: t.note || null });
 const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done, status: r.status || (r.done ? MST.done : MST.todo), prio: r.prio || "Sedang", due: r.due_date || "", note: r.note || "" });
 const logToRow = (l) => ({ id: l.id, ts: l.ts, actor: l.actor, action: l.action, detail: l.detail || null });
@@ -460,6 +491,11 @@ async function ensureSeed() {
   await pushTable("app_terms", SEED_TERMS, termToRow);
   await pushTable("app_docs", SEED_DOCS, docToRow);
   await pushTable("app_punch", SEED_PUNCH, punchToRow);
+  /* seed 2 akun awal dengan password default "<username>123" supaya portal
+     bisa langsung dipakai. Ganti password lewat menu setelah login. */
+  const seeded = [];
+  for (const u of SEED_USERS) { const salt = genSalt(); const hash = await hashPassword(uname(u) + "123", salt); seeded.push({ ...userToRow(u), password_salt: salt, password_hash: hash }); }
+  if (seeded.length) { const { error: eu } = await sb.from("app_users").upsert(seeded); if (eu) throw new Error("app_users: gagal ditulis — " + eu.message); }
   return true;
 }
 async function loadAll() {
@@ -489,7 +525,7 @@ async function runDiag() {
     return out;
   }
   add("Mode aplikasi", true, "LIVE — " + SUPABASE_URL);
-  try { const { data, error } = await sb.auth.getSession(); if (error) throw error; const ss = data && data.session; add("Sesi login", !!ss, ss ? ss.user.email : "tidak ada sesi aktif"); }
+  try { const { error } = await sb.from("app_users").select("id").limit(1); if (error) throw error; add("Akses tabel app_users", true, "RLS mengizinkan baca (anon)"); }
   catch (e) { add("Sesi login", false, e.message || String(e)); }
   const tables = ["app_meta", "app_acts", "app_tasks", "app_rab", "app_trans", "app_terms", "app_actcosts", "app_docs", "app_punch", "app_users", "app_mytasks", "app_logs"];
   for (const t of tables) {
@@ -666,26 +702,16 @@ const iconBtn = { background: "none", border: "none", cursor: "pointer", color: 
 function Empty({ text }) { return <div style={{ textAlign: "center", color: C.slate, fontSize: 13, padding: "26px 8px" }}>{text}</div>; }
 
 /* ===== LOGIN ===== */
-const USERS = [
-  { u: "pm", p: "pm123", name: "Project Manager", role: ROLE.pm, email: "pm@mrt.co.id" },
-  { u: "admin", p: "admin123", name: "Admin Proyek", role: ROLE.admin, email: "admin@mrt.co.id" },
-];
 function Login({ onLogin, live }) {
   const [u, setU] = useState(""), [p, setP] = useState(""), [err, setErr] = useState(""), [busy, setBusy] = useState(false);
   const submit = async () => {
     setErr("");
-    if (live) {
-      if (!u.trim() || !p) { setErr("Username dan password wajib diisi."); return; }
-      if (!validLogin(u)) { setErr("Format username tidak valid. Isi username (mis. budi.santoso) atau alamat email lengkap bila akunmu dibuat dengan email."); return; }
-      setBusy(true);
-      try {
-        const { error } = await sb.auth.signInWithPassword({ email: toAuthEmail(u), password: p });
-        if (error) { setErr(/invalid/i.test(error.message || "") ? ("Username atau password salah." + (u.indexOf("@") < 0 ? " Bila akunmu dibuat memakai email, isi alamat email lengkapnya." : "")) : (error.message || "Gagal masuk.")); setBusy(false); }
-      } catch (e) { setErr("Gagal terhubung ke server."); setBusy(false); }
-    } else {
-      const f = USERS.find((x) => x.u === u.trim() && x.p === p);
-      if (f) onLogin({ name: f.name, role: f.role, email: f.email }); else setErr("Username atau password salah.");
-    }
+    if (!u.trim() || !p) { setErr("Username dan password wajib diisi."); return; }
+    setBusy(true);
+    try {
+      const r = await portalLogin(u, p);
+      if (r.ok) { onLogin(r.user); } else { setErr(r.msg || "Gagal masuk."); setBusy(false); }
+    } catch (e) { setErr("Gagal terhubung ke server: " + (e.message || "")); setBusy(false); }
   };
   return <div style={{ minHeight: "100vh", background: `linear-gradient(135deg,${C.blueSoft},${C.greenSoft})`, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
     <div style={{ width: 400, maxWidth: "100%" }}>
@@ -695,14 +721,14 @@ function Login({ onLogin, live }) {
       </div>
       <div style={{ background: "#fff", borderRadius: 18, padding: 26, boxShadow: "0 20px 50px rgba(10,108,184,.14)" }}>
         <div style={{ fontWeight: 700, fontSize: 19, color: C.ink }}>Selamat datang</div>
-        <div style={{ fontSize: 13, color: C.slate, marginBottom: 12, marginTop: 2 }}>{live ? "Masuk dengan email & password." : "Masuk dengan akun demo di bawah."}</div>
-        <Field label="Username" req><Input type="text" value={u} onChange={(e) => setU(e.target.value)} placeholder={live ? "mis. budi.santoso" : "pm / admin"} onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+        <div style={{ fontSize: 13, color: C.slate, marginBottom: 12, marginTop: 2 }}>{live ? "Masuk dengan username & password portal." : "Mode DEMO — pilih akun contoh di bawah."}</div>
+        <Field label="Username" req><Input type="text" value={u} onChange={(e) => setU(e.target.value.toLowerCase())} placeholder="mis. rardhan" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
         <div style={{ height: 12 }} />
         <Field label="Password" req><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
         {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10 }}>{err}</div>}
         <Btn onClick={submit} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : "Masuk"} {!busy && <Ic name="arrow" size={16} />}</Btn>
         {!live && <div className="g2" style={{ marginTop: 14 }}>
-          {USERS.map((x) => <button key={x.u} onClick={() => { setU(x.u); setP(x.p); setErr(""); }} style={{ textAlign: "left", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 11, background: C.bg, cursor: "pointer" }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{x.role}</div><div style={{ fontSize: 11, color: C.slate }}>{x.u} / {x.p}</div></button>)}
+          {SEED_USERS.map((x) => <button key={x.username} onClick={() => { setU(uname(x)); setP(uname(x) + "123"); setErr(""); }} style={{ textAlign: "left", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 11, background: C.bg, cursor: "pointer" }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink }}>{x.role}</div><div style={{ fontSize: 11, color: C.slate }}>{uname(x)} / {uname(x)}123</div></button>)}
         </div>}
       </div>
     </div>
@@ -2241,85 +2267,71 @@ function MyTaskView({ task, owner, onClose }) {
 }
 
 /* ===== MANAJEMEN USER (khusus Project Management) ===== */
-function UserModal({ item, existing, onSave, onClose }) {
+function UserModal({ item, existing, onSaved, onClose }) {
   const isNew = !item;
-  const [f, setF] = useState(item || { name: "", username: "", role: ROLE.admin, active: true });
+  const [f, setF] = useState(item || { id: uid(), name: "", username: "", role: ROLE.admin, active: true });
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [hint, setHint] = useState("");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const save = async () => {
-    setErr(""); setHint("");
+    setErr("");
     const un = (f.username || "").trim().toLowerCase();
     if (!f.name.trim()) { setErr("Nama karyawan wajib diisi."); return; }
     if (!un) { setErr("Username wajib diisi."); return; }
-    if (!validLogin(un)) { setErr("Username 3–24 karakter (huruf, angka, titik, garis bawah, strip). Boleh juga diisi alamat email lengkap."); return; }
+    if (!validUser(un)) { setErr("Username 3–24 karakter: huruf kecil, angka, titik, garis bawah, atau strip."); return; }
     if (isNew && existing.some((u) => uname(u) === un)) { setErr("Username sudah dipakai."); return; }
-    if (isNew) {
+    if (isNew || pw) {
       if (pw.length < 8) { setErr("Password minimal 8 karakter."); return; }
       if (pw !== pw2) { setErr("Konfirmasi password tidak sama."); return; }
-      setBusy(true);
-      try {
-        const r = await portalCreateUser(un, pw);
-        if (r.exists) {
-          setErr("Username ini pernah dibuat sebelumnya. Klik “Pulihkan Akses” untuk mengaktifkannya kembali dengan password lamanya.");
-          setHint("restore"); setBusy(false); return;
-        }
-        if (r.needConfirm) {
-          setErr("Akun belum aktif karena Supabase masih meminta verifikasi email. Buka Supabase → Authentication → Sign In / Providers → Email, matikan “Confirm email”, simpan, lalu buat ulang user ini.");
-          setBusy(false); return;
-        }
-        onSave({ ...f, username: un, email: toAuthEmail(un) }, `User ${f.name} dibuat. Beri tahu username “${un}” dan password awalnya.`);
-      } catch (e) { setErr(e.message || "Gagal membuat akun."); setBusy(false); }
-    } else onSave({ ...f, username: un, email: f.email || toAuthEmail(un) }, "");
-  };
-  const restore = () => {
-    const un = (f.username || "").trim().toLowerCase();
-    onSave({ ...f, username: un, email: toAuthEmail(un) }, `Akses ${f.name} dipulihkan. Password lamanya masih berlaku.`);
+    }
+    setBusy(true);
+    try {
+      const r = await portalUpsertUser({ ...f, username: un }, (isNew || pw) ? pw : null);
+      if (!r.ok) { setErr(r.msg || "Gagal menyimpan."); setBusy(false); return; }
+      onSaved({ ...f, username: un }, isNew ? `User ${f.name} dibuat. Beri tahu username “${un}” dan passwordnya.` : `Perubahan untuk ${f.name} tersimpan.`, isNew);
+    } catch (e) { setErr(e.message || "Gagal menyimpan."); setBusy(false); }
   };
   return <Modal title={isNew ? "Tambah User" : "Edit User"} onClose={onClose} width={470}>
     <ReqNote />
     <Field label="Nama Karyawan" req><Input autoFocus value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Budi Santoso" /></Field>
     <div style={{ marginTop: 12 }}><Field label="Username" req>
       <Input value={f.username || ""} onChange={(e) => set("username", e.target.value.toLowerCase())} disabled={!isNew} placeholder="mis. budi.santoso" />
-    </Field>
-      {isNew
-        ? <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Akan terdaftar sebagai <b style={{ color: C.ink, fontFamily: "monospace" }}>{toAuthEmail(f.username || "username")}</b> — alamat internal, tidak pernah dikirimi surel.</div>
-        : <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Username tidak bisa diubah karena terikat ke akun login.</div>}
+    </Field>{!isNew && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Username tidak bisa diubah karena dipakai untuk login.</div>}</div>
+    <div className="g2" style={{ marginTop: 12 }}>
+      <Field label={isNew ? "Password" : "Password baru"} req={isNew}><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={isNew ? "minimal 8 karakter" : "kosongkan bila tidak diubah"} /></Field>
+      <Field label="Konfirmasi Password" req={isNew}><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="ulangi password" onKeyDown={(e) => e.key === "Enter" && save()} /></Field>
     </div>
-    {isNew && <>
-      <div style={{ marginTop: 12 }}><Field label="Password" req><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="minimal 8 karakter" /></Field></div>
-      <div style={{ marginTop: 12 }}><Field label="Konfirmasi Password" req><Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="ulangi password" onKeyDown={(e) => e.key === "Enter" && save()} /></Field></div>
-    </>}
     <div className={isNew ? "" : "g2"} style={{ marginTop: 12 }}>
       <Field label="Role" req><Sel value={f.role} onChange={(e) => set("role", e.target.value)}>{[ROLE.pm, ROLE.admin].map((r) => <option key={r}>{r}</option>)}</Sel></Field>
       {!isNew && <Field label="Status akses"><Sel value={f.active ? "Aktif" : "Nonaktif"} onChange={(e) => set("active", e.target.value === "Aktif")}><option>Aktif</option><option>Nonaktif</option></Sel></Field>}
     </div>
     <div style={{ marginTop: 12, fontSize: 12, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
-      {isNew ? "Akun dibuat sepenuhnya dari portal ini — tanpa email, tanpa verifikasi. User cukup login memakai username dan password di atas."
-             : "Status “Nonaktif” langsung memblokir user ini masuk portal pada percobaan login berikutnya."}
+      {isNew ? "Akun dibuat langsung di portal ini — tanpa email, tanpa verifikasi. User cukup login dengan username dan password di atas."
+             : "Kosongkan kolom password bila tidak ingin menggantinya. Status “Nonaktif” langsung memblokir login user ini."}
     </div>
-    {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, lineHeight: 1.5 }}>{err}</div>}
-    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18, flexWrap: "wrap" }}>
+    {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, lineHeight: 1.55, background: "#FDECEF", border: `1px solid ${C.red}44`, borderRadius: 10, padding: "10px 12px" }}>{err}</div>}
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
       <Btn kind="ghost" onClick={onClose}>Batal</Btn>
-      {hint === "restore" && <Btn kind="green" onClick={restore}>Pulihkan Akses</Btn>}
-      <Btn onClick={save} disabled={busy} style={{ opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : (isNew ? "Buat User" : "Simpan")}</Btn>
+      <Btn onClick={save} disabled={busy} style={{ opacity: busy ? .7 : 1 }}>{busy ? "Menyimpan…" : (isNew ? "Buat User" : "Simpan")}</Btn>
     </div>
   </Modal>;
 }
-/* ganti password sendiri (Supabase hanya mengizinkan user mengubah password miliknya) */
-function PasswordModal({ onClose, log }) {
+/* ganti password sendiri — memperbarui hash di app_users */
+function PasswordModal({ me, onClose, log }) {
   const [a, setA] = useState(""), [b, setB] = useState(""), [err, setErr] = useState(""), [ok, setOk] = useState(""), [busy, setBusy] = useState(false);
   const submit = async () => {
     setErr(""); setOk("");
     if (a.length < 8) { setErr("Password baru minimal 8 karakter."); return; }
     if (a !== b) { setErr("Konfirmasi password tidak sama."); return; }
-    if (!LIVE) { setOk("Mode DEMO — perubahan password tidak disimpan."); return; }
+    if (!LIVE) { setOk("Mode DEMO — perubahan tidak disimpan."); return; }
     setBusy(true);
-    try { const { error } = await sb.auth.updateUser({ password: a }); if (error) throw error; setOk("Password berhasil diubah."); log && log("Ubah password", "akun sendiri"); }
-    catch (e) { setErr(e.message || "Gagal mengubah password."); }
+    try {
+      const r = await portalUpsertUser(me, a);
+      if (!r.ok) throw new Error(r.msg);
+      setOk("Password berhasil diubah."); log && log("Ubah password", "akun sendiri");
+    } catch (e) { setErr(e.message || "Gagal mengubah password."); }
     setBusy(false);
   };
   return <Modal title="Ubah Password" onClose={onClose} width={420}>
@@ -2336,16 +2348,18 @@ function UsersPage({ users, setUsers, mytasks, me, log }) {
   const [flash, setFlash] = useState("");
   const th = { textAlign: "left", fontSize: 10.5, fontWeight: 700, color: "#9AAABC", padding: "10px 10px", borderBottom: `1px solid ${C.line}`, textTransform: "uppercase", letterSpacing: .4, whiteSpace: "nowrap" };
   const td = { padding: "11px 10px", borderBottom: `1px solid ${C.line}`, fontSize: 13, color: C.ink };
-  const save = (data, msg) => {
-    if (data.id) { setUsers((s) => s.map((u) => u.id === data.id ? data : u)); log && log("Edit user", `${data.name} (${data.role})`); }
-    else { setUsers((s) => [...s, { ...data, id: uid() }]); log && log("Buat akun user", `${data.name} · ${data.email} · ${data.role}`); }
+  const saved = (data, msg, isNew) => {
+    setUsers((s) => isNew ? [...s, data] : s.map((u) => u.id === data.id ? { ...u, ...data } : u));
+    log && log(isNew ? "Buat akun user" : "Edit user", `${data.name} · ${uname(data)} · ${data.role}`);
     setFlash(msg || `User ${data.name} tersimpan.`); setModal(null);
     setTimeout(() => setFlash(""), 6000);
   };
-  const del = (u) => {
-    if (u.email === me.email) return;
-    if (!window.confirm(`Cabut akses ${u.name} (${uname(u)})? Ia tidak akan bisa masuk portal lagi.`)) return;
-    setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Cabut akses user", u.name);
+  const del = async (u) => {
+    if (uname(u) === uname(me)) return;
+    if (!window.confirm(`Hapus akun ${u.name} (${uname(u)})? Ia tidak akan bisa masuk portal lagi.`)) return;
+    const r = await portalDeleteUser(u.id);
+    if (!r.ok) { setFlash("Gagal menghapus: " + r.msg); setTimeout(() => setFlash(""), 6000); return; }
+    setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Hapus akun user", u.name);
   };
   const taskOf = (email) => mytasks.filter((t) => (t.owner || "").toLowerCase() === (email || "").toLowerCase());
   return <div className="g1">
@@ -2359,12 +2373,12 @@ function UsersPage({ users, setUsers, mytasks, me, log }) {
       <CardHead icon="users" title="Manajemen User" color={C.violet} right={<Btn onClick={() => setModal({})}><Ic name="userPlus" size={16} /> Tambah User</Btn>} />
       {flash && <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, color: C.ink, borderRadius: 10, padding: "10px 12px", fontSize: 12.5, marginBottom: 14 }}>{flash}</div>}
       <div style={{ fontSize: 12.5, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
-        Akun dibuat <b>langsung dari portal ini</b>: cukup Nama Karyawan, Username, Password, dan Role. Tidak perlu email, tidak ada verifikasi, dan tidak perlu membuka Supabase.
+        Akun dibuat <b>langsung dari portal ini</b>: cukup Nama Karyawan, Username, Password, dan Role. Tidak perlu email, tidak ada verifikasi, dan tidak perlu membuka menu Authentication di Supabase.
       </div>
       <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
         <thead><tr><th style={th}>Nama</th><th style={th}>Username</th><th style={th}>Role</th><th style={th}>Akses</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 76 }}></th></tr></thead>
         <tbody>{users.map((u) => { const tc = taskOf(u.email); return <tr key={u.id} style={{ opacity: u.active ? 1 : .6 }}>
-          <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ width: 32, height: 32, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{u.email === me.email && <div style={{ fontSize: 10.5, color: C.violet, fontWeight: 700 }}>akun Anda</div>}</div></div></td>
+          <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ width: 32, height: 32, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{uname(u) === uname(me) && <div style={{ fontSize: 10.5, color: C.violet, fontWeight: 700 }}>akun Anda</div>}</div></div></td>
           <td style={td}><div style={{ fontFamily: "monospace", fontSize: 12.5, color: C.ink }}>{uname(u)}</div><div style={{ fontSize: 10, color: "#A9B7C6" }}>{u.email}</div></td>
           <td style={td}><Pill text={u.role} color={u.role === ROLE.pm ? C.blue : C.green} bg={u.role === ROLE.pm ? C.blueSoft : C.greenSoft} /></td>
           <td style={td}><Pill text={u.active ? "Aktif" : "Nonaktif"} color={u.active ? C.green : C.red} bg={u.active ? C.greenSoft : "#FDECEF"} /></td>
@@ -2377,7 +2391,7 @@ function UsersPage({ users, setUsers, mytasks, me, log }) {
         {users.length === 0 && <tr><td colSpan={6}><Empty text="Belum ada user." /></td></tr>}
         </tbody></table></div>
     </Card>
-    {modal && <UserModal item={modal.item} existing={users} onSave={save} onClose={() => setModal(null)} />}
+    {modal && <UserModal item={modal.item} existing={users} onSaved={saved} onClose={() => setModal(null)} />}
   </div>;
 }
 
@@ -2811,21 +2825,19 @@ function App() {
     return () => clearTimeout(t);
   }, [exportAct]);
 
-  /* sesi Supabase */
+  /* pulihkan sesi dari penyimpanan lokal (login mandiri, tanpa Supabase Auth) */
   useEffect(() => {
-    if (!LIVE) return;
-    let unsub;
-    sb.auth.getSession().then(({ data }) => {
-      const s = data && data.session;
-      if (s && s.user) setUser({ name: fromAuthEmail(s.user.email), role: ROLE.admin, email: s.user.email, pending: true });
-      setBooting(false);
-    }).catch(() => setBooting(false));
-    const r = sb.auth.onAuthStateChange((_e, s) => {
-      if (s && s.user) setUser((u) => (u && u.email === s.user.email ? u : { name: fromAuthEmail(s.user.email), role: ROLE.admin, email: s.user.email, pending: true }));
-      else { setUser(null); setReady(false); }
-    });
-    unsub = r && r.data && r.data.subscription;
-    return () => { try { unsub && unsub.unsubscribe(); } catch (e) {} };
+    if (!LIVE) { setBooting(false); return; }
+    const ses = readSession();
+    if (!ses || !ses.username) { setBooting(false); return; }
+    sb.from("app_users").select("*").eq("project_key", PROJECT_KEY).eq("username", ses.username).limit(1)
+      .then(({ data }) => {
+        const row = data && data[0];
+        if (row && row.active !== false) setUser(userFromRow(row));
+        else clearSession();
+        setBooting(false);
+      })
+      .catch(() => setBooting(false));
   }, []);
 
   /* muat data + tentukan role */
@@ -2838,17 +2850,12 @@ function App() {
       setTasks(d.tasks); setRab(d.rab); setTrans(d.trans); setTerms(d.terms); setDocs(d.docs); setPunch(d.punch);
       setMytasks(d.mytasks); setLogs(d.logs);
       if (d.meta && d.meta.fee != null) setFee(Number(d.meta.fee));
-      const email = (user.email || "").toLowerCase();
+      const un = uname(user);
       let list = d.users;
-      let me = list.find((u) => (u.email || "").toLowerCase() === email);
-      /* GERBANG AKSES: user hanya boleh masuk bila terdaftar & aktif di
-         Manajemen User. User pertama (daftar masih kosong) otomatis jadi
-         Project Management supaya portal bisa di-bootstrap. */
-      if (!me && list.length === 0) { me = { id: uid(), name: fromAuthEmail(email), username: fromAuthEmail(email), email, role: ROLE.pm, active: true }; list = [...list, me]; }
-      if (!me) { sb.auth.signOut().catch(() => {}); setDenied("Username \"" + fromAuthEmail(email) + "\" belum terdaftar di portal. Minta Project Management menambahkan Anda lewat menu Manajemen User."); return; }
-      if (!me.active) { sb.auth.signOut().catch(() => {}); setDenied("Akses untuk \"" + fromAuthEmail(email) + "\" sedang dinonaktifkan. Hubungi Project Management."); return; }
+      let me = list.find((u) => uname(u) === un) || user;
+      if (me.active === false) { clearSession(); setDenied("Akses untuk \"" + un + "\" sedang dinonaktifkan. Hubungi Project Management."); return; }
       setUsers(list);
-      setUser({ name: me.name, email: me.email, username: uname(me), role: me.role });
+      setUser(me); saveSession(me);
       setReady(true);
     }).catch((e) => { if (alive) setLoadErr(e.message || "Gagal memuat data dari Supabase."); });
     return () => { alive = false; };
@@ -2869,7 +2876,7 @@ function App() {
   useEffect(() => { if (!LIVE || !ready) return; const h = setTimeout(() => saveMetaFee(fee), 700); return () => clearTimeout(h); }, [fee, ready]);
 
   const loggedRef = useRef(false);
-  useEffect(() => { if (user && !user.pending && !loggedRef.current) { loggedRef.current = true; log("Masuk aplikasi", `${user.name} · ${user.role}`); } }, [user]);
+  useEffect(() => { if (user && ready && !loggedRef.current) { loggedRef.current = true; log("Masuk aplikasi", `${user.name} · ${user.role}`); } }, [user, ready]);
 
   if (booting) return <div className="boot">Memeriksa sesi…</div>;
   if (denied) return <div className="boot"><div style={{ maxWidth: 420 }}>
@@ -2902,7 +2909,7 @@ function App() {
   ];
   const cur = NAV.find((n) => n.id === page) || NAV[0];
   const go = (id) => { setPage(id); if (isMobile) setSidebar(false); };
-  const doLogout = async () => { log("Keluar aplikasi", user.name); if (LIVE) { try { await sb.auth.signOut(); } catch (e) {} setReady(false); } setUser(null); loggedRef.current = false; };
+  const doLogout = () => { log("Keluar aplikasi", user.name); clearSession(); setReady(false); setUser(null); loggedRef.current = false; };
   const actKey = page.indexOf("act:") === 0 ? page.slice(4) : null;
 
   return <div style={{ fontFamily: "Inter, system-ui, sans-serif", color: C.text, background: C.bg, minHeight: "100vh", display: "flex" }}>
@@ -2924,7 +2931,7 @@ function App() {
       <div style={{ padding: 14, borderTop: `1px solid ${C.line}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 99, background: isPM ? C.blueSoft : C.greenSoft, color: isPM ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(user.name || "?")[0].toUpperCase()}</div>
-          <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div><div style={{ fontSize: 10.5, color: C.slate }}>{user.username || fromAuthEmail(user.email)} · {user.role}</div></div>
+          <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div><div style={{ fontSize: 10.5, color: C.slate }}>{uname(user)} · {user.role}</div></div>
         </div>
         {LIVE && <button onClick={() => setPwModal(true)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600, marginBottom: 7 }}><Ic name="key" size={14} /> Ubah Password</button>}
         <button onClick={doLogout} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}><Ic name="logout" size={14} /> Keluar</button>
@@ -3029,7 +3036,7 @@ function App() {
     </main>
 
     {diag && <DiagModal onClose={() => setDiag(false)} />}
-    {pwModal && <PasswordModal onClose={() => setPwModal(false)} log={log} />}
+    {pwModal && <PasswordModal me={user} onClose={() => setPwModal(false)} log={log} />}
     {exportAct && <div style={{ position: "fixed", left: -99999, top: 0, zIndex: -1 }}>
       <div ref={ganttRef} style={{ background: "#fff", padding: 18, display: "inline-block" }}>
         <div style={{ fontWeight: 800, fontSize: 16, color: C.ink, fontFamily: "Inter, sans-serif" }}>{PROJECT.name}</div>
