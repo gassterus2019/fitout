@@ -394,8 +394,15 @@ async function portalLogin(username, password) {
   }
   const { data, error } = await sb.from("app_users").select("*").eq("project_key", PROJECT_KEY).eq("username", un).limit(1);
   if (error) return { ok: false, msg: "Gagal menghubungi server: " + error.message };
-  const row = data && data[0];
-  if (!row) return { ok: false, msg: "Username tidak ditemukan." };
+  let row = data && data[0];
+  if (!row) {
+    /* Bedakan "tabel tak terbaca (RLS)" dari "username memang tak ada":
+       cek apakah ada baris app_users yang terlihat sama sekali. */
+    const { data: any } = await sb.from("app_users").select("id").limit(1);
+    if (!any || any.length === 0)
+      return { ok: false, msg: "Tabel akun tidak terbaca oleh aplikasi. Jalankan fix_login.sql di Supabase SQL Editor (membuka akses baca untuk portal), lalu coba lagi." };
+    return { ok: false, msg: "Username tidak ditemukan. Periksa ejaannya, atau minta Project Management membuatkan akun." };
+  }
   if (row.active === false) return { ok: false, msg: "Akses akun ini sedang dinonaktifkan. Hubungi Project Management." };
   if (!row.password_hash || !row.password_salt) return { ok: false, msg: "Akun belum memiliki password. Minta Project Management mengatur ulang." };
   const h = await hashPassword(password, row.password_salt);
