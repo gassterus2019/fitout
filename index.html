@@ -2123,7 +2123,15 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
   };
   const cycle = (t) => { const i = MCOLS.indexOf(stOfT(t)); moveTo(t.id, MCOLS[(i + 1) % MCOLS.length]); };
   const save = (data) => {
-    if (data.work) { setModal(null); return; }
+    if (data.workId) {
+      /* pekerjaan: tulis balik to-do, catatan, persen, dan status ke state tasks */
+      setTasks((s) => s.map((t) => {
+        if (t.id !== data.workId) return t;
+        return { ...t, todos: data.todos, note: data.note, percent: data.percent, status: data.status, actualFinish: data.status === STATUS.done ? nowISO().slice(0, 10) : (t.actualFinish || "") };
+      }));
+      log && log("Update pekerjaan (Tugas Saya)", scoped.find((x) => x.workId === data.workId)?.text + " " + data.percent + "%");
+      setModal(null); return;
+    }
     if (data.id) { setMytasks((s) => s.map((t) => t.id === data.id ? { ...t, ...data } : t)); log && log("Edit tugas", data.text); }
     else { setMytasks((s) => [...s, { ...data, id: uid() }]); log && log("Tambah tugas", `${data.text}${data.owner !== me ? " → " + data.owner : ""}`); }
     setModal(null);
@@ -2189,7 +2197,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
 
       {!canEdit && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 18px", background: C.blueSoft, borderBottom: `1px solid ${C.line}`, fontSize: 12, color: C.ink }}>
         <span style={{ color: C.blue, flexShrink: 0 }}><Ic name="alert" size={14} /></span>
-        Role Admin: dapat <b>menambah tugas</b> untuk diri sendiri dan <b>mengubah status</b> (klik lingkaran atau seret kartu). Mengubah isi tugas, menghapus, dan menugaskan ke orang lain hanya untuk Project Management.
+        Role Admin: dapat <b>menambah tugas</b> untuk diri sendiri, <b>mengubah status</b> (klik lingkaran atau seret kartu), dan <b>mencentang to-do</b> pekerjaan yang ditugaskan.
       </div>}
 
       {/* ---------- TAMPILAN DAFTAR ---------- */}
@@ -2237,7 +2245,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
                       : <span style={{ fontSize: 12, color: "#A9B7C6" }}>—</span>}</td>
                     <td style={td}><PrioChip prio={t.prio || "Sedang"} /></td>
                     <td style={td}><div style={{ display: "flex", gap: 2 }}>
-                      <button title={t.work ? "Lihat detail pekerjaan" : (canEdit ? "Edit tugas" : "Lihat tugas")} onClick={() => setModal({ item: t })} style={{ ...iconBtn, color: (canEdit && !t.work) ? C.violet : C.slate }}><Ic name={(canEdit && !t.work) ? "pencil" : "eye"} size={14} /></button>
+                      <button title={t.work ? "Edit to-do & catatan" : (canEdit ? "Edit tugas" : "Lihat tugas")} onClick={() => setModal({ item: t })} style={{ ...iconBtn, color: (canEdit || t.work) ? C.violet : C.slate }}><Ic name={(canEdit || t.work) ? "pencil" : "eye"} size={14} /></button>
                       {canEdit && !t.work && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, color: C.red }}><Ic name="trash" size={14} /></button>}
                     </div></td>
                   </tr>;
@@ -2276,7 +2284,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
                       {t.work && <Chip text={actOf(t.act).label} c={actOf(t.act).color} b={actOf(t.act).soft} dot />}
                       {isLate && <Chip text="Terlambat" c={C.red} b="#FDECEF" />}
                       <span style={{ marginLeft: "auto", display: "flex", gap: 1 }}>
-                        <button title={t.work ? "Lihat detail" : (canEdit ? "Edit" : "Lihat")} onClick={() => setModal({ item: t })} style={{ ...iconBtn, padding: 3, color: (canEdit && !t.work) ? C.violet : C.slate }}><Ic name={(canEdit && !t.work) ? "pencil" : "eye"} size={13} /></button>
+                        <button title={t.work ? "Edit to-do" : (canEdit ? "Edit" : "Lihat")} onClick={() => setModal({ item: t })} style={{ ...iconBtn, padding: 3, color: (canEdit || t.work) ? C.violet : C.slate }}><Ic name={(canEdit || t.work) ? "pencil" : "eye"} size={13} /></button>
                         {canEdit && !t.work && <button title="Hapus" onClick={() => del(t)} style={{ ...iconBtn, padding: 3, color: C.red }}><Ic name="trash" size={13} /></button>}
                       </span>
                     </div>
@@ -2302,10 +2310,12 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
       </div>}
     </Card>
 
-    {modal && (canEdit || !modal.item) && !(modal.item && modal.item.work)
-      ? <MyTaskModal item={modal.item ? { ...modal.item } : (modal.status ? { text: "", owner: me, status: modal.status, prio: "Sedang", due: "", note: "" } : null)}
-          users={users} me={{ email: me, name: user.name }} isPM={isPM} onSave={save} onClose={() => setModal(null)} />
-      : modal && <MyTaskView task={modal.item} owner={userOf(modal.item.owner)} onClose={() => setModal(null)} />}
+    {modal && modal.item && modal.item.work
+      ? <WorkTaskModal task={modal.item} onSave={save} onClose={() => setModal(null)} />
+      : modal && (canEdit || !modal.item)
+        ? <MyTaskModal item={modal.item ? { ...modal.item } : (modal.status ? { text: "", owner: me, status: modal.status, prio: "Sedang", due: "", note: "" } : null)}
+            users={users} me={{ email: me, name: user.name }} isPM={isPM} onSave={save} onClose={() => setModal(null)} />
+        : modal && <MyTaskView task={modal.item} owner={userOf(modal.item.owner)} onClose={() => setModal(null)} />}
   </div>;
 }
 /* Admin: lihat detail tanpa mengubah isi */
@@ -2334,8 +2344,76 @@ function MyTaskView({ task, owner, onClose }) {
       <div style={{ fontSize: 12, color: C.slate, marginBottom: 5 }}>Catatan</div>
       <div style={{ fontSize: 13, color: task.note ? C.ink : C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", whiteSpace: "pre-wrap", minHeight: 50 }}>{task.note || "Tidak ada catatan."}</div>
     </div>
-    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 12 }}>{task.work ? "Item ini berasal dari penugasan PIC di Gantt/Kanban. Perubahan status di sini otomatis tersinkron ke sana. Detail lain diubah lewat menu kegiatan." : "Role Admin hanya dapat mengubah status tugas — klik lingkaran status atau seret kartunya."}</div>
+    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 12 }}>Role Admin hanya dapat mengubah status tugas — klik lingkaran status atau seret kartunya.</div>
     <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><Btn kind="ghost" onClick={onClose}>Tutup</Btn></div>
+  </Modal>;
+}
+/* ===== MODAL PEKERJAAN DI TUGAS SAYA (edit checklist & catatan) ===== */
+function WorkTaskModal({ task, onSave, onClose }) {
+  const [todos, setTodos] = useState((task.todos || []).map((x) => ({ ...x })));
+  const [note, setNote] = useState(task.note || "");
+  const toggle = (id) => setTodos((s) => s.map((x) => x.id === id ? { ...x, done: !x.done } : x));
+  const doneN = todos.filter((x) => x.done).length;
+  const autoPct = todos.length ? Math.round(doneN / todos.length * 100) : task.percent;
+  const allDone = todos.length > 0 && doneN === todos.length;
+  const share = todos.length ? 100 / todos.length : 0;
+  const m = SMETA[task.status] || SMETA[STATUS.todo];
+  const pm = PRIOC[task.prio] || PRIOC.Sedang;
+  const save = () => {
+    const pct = todos.length ? Math.round(todos.filter((x) => x.done).length / todos.length * 100) : task.percent;
+    const st = pct >= 100 ? STATUS.done : pct > 0 ? STATUS.doing : STATUS.todo;
+    onSave({ workId: task.workId, todos, note, percent: pct, status: st });
+  };
+  return <Modal title="Detail Pekerjaan" onClose={onClose} width={560}>
+    <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, lineHeight: 1.35 }}>{task.text}</div>
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+      <Chip text={actOf(task.act).label} c={actOf(task.act).color} b={actOf(task.act).soft} dot />
+      <Chip text={"Prioritas " + (task.prio || "Sedang")} c={pm.c} b={pm.b} dot />
+      <span style={{ fontSize: 11.5, color: C.slate }}>{fmtDate(task.due)}</span>
+    </div>
+
+    {/* Progress bar */}
+    <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ flex: 1 }}><Bar pct={autoPct} color={autoPct >= 100 ? C.green : C.violet} /></div>
+      <span style={{ fontSize: 13, fontWeight: 800, color: autoPct >= 100 ? C.green : C.ink, fontVariantNumeric: "tabular-nums" }}>{doneN}/{todos.length} · {autoPct}%</span>
+    </div>
+    {allDone && <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8, fontSize: 12.5, fontWeight: 700, color: C.green, background: C.greenSoft, borderRadius: 9, padding: "8px 12px" }}>
+      <Ic name="check" size={14} /> Semua to-do selesai! Status akan otomatis menjadi "Selesai" saat disimpan.
+    </div>}
+
+    {/* To-do checklist */}
+    {todos.length > 0 && <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, background: "#FBFCFE" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink }}>To-do list pekerjaan</div>
+        <div style={{ fontSize: 11.5, color: C.slate }}>Centang yang sudah selesai</div>
+      </div>
+      <div style={{ display: "grid", gap: 5 }}>
+        {todos.map((x) => <button key={x.id} onClick={() => toggle(x.id)}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 9, border: `1px solid ${x.done ? C.green + "44" : C.line}`, background: x.done ? C.greenSoft : "#fff", cursor: "pointer", textAlign: "left" }}>
+          <span style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${x.done ? C.green : "#C7D2DE"}`, background: x.done ? C.green : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>
+            {x.done && <Ic name="check" size={11} />}
+          </span>
+          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: x.done ? C.slate : C.ink, textDecoration: x.done ? "line-through" : "none", lineHeight: 1.35 }}>{x.text}</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: x.done ? C.green : "#A9B7C6", flexShrink: 0 }}>{x.done ? "+" + share.toFixed(1) + "%" : share.toFixed(1) + "%"}</span>
+        </button>)}
+      </div>
+    </div>}
+    {todos.length === 0 && <div style={{ marginTop: 14, fontSize: 12.5, color: C.slate, background: C.bg, borderRadius: 10, padding: "10px 12px", border: `1px solid ${C.line}` }}>
+      Pekerjaan ini belum memiliki to-do list. Tambahkan melalui menu kegiatan di Gantt Chart.
+    </div>}
+
+    {/* Catatan */}
+    <div style={{ marginTop: 16 }}>
+      <Field label="Catatan pekerjaan"><Area value={note} onChange={(e) => setNote(e.target.value)} placeholder="Catatan pelaksanaan, kendala, dll." style={{ minHeight: 80 }} /></Field>
+    </div>
+
+    <div style={{ fontSize: 11.5, color: C.slate, marginTop: 12, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 12px" }}>
+      Perubahan di sini otomatis tersinkron ke Gantt Chart dan Kanban. Progres dihitung otomatis dari to-do yang dicentang.
+    </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+      <Btn kind="ghost" onClick={onClose}>Batal</Btn>
+      <Btn onClick={save}>Simpan</Btn>
+    </div>
   </Modal>;
 }
 
