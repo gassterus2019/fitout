@@ -404,6 +404,7 @@ async function portalLogin(username, password) {
     return { ok: false, msg: "Username tidak ditemukan. Periksa ejaannya, atau minta Project Management membuatkan akun." };
   }
   if (row.active === false) return { ok: false, msg: "Akses akun ini sedang dinonaktifkan. Hubungi Project Management." };
+  if (row.pending) return { ok: false, msg: "Akun ini masih menunggu persetujuan dari Project Management. Silakan hubungi PM untuk konfirmasi." };
   if (!row.password_hash || !row.password_salt) return { ok: false, needSetup: true, user: userFromRow(row) };
   const h = await hashPassword(password, row.password_salt);
   if (h !== row.password_hash) return { ok: false, msg: "Password salah." };
@@ -450,8 +451,8 @@ const actToRow = (a) => ({ id: a.id, key: a.key, label: a.label, color: a.color,
 const actFromRow = (r) => ({ id: r.id, key: r.key, label: r.label, color: r.color || C.blue, soft: r.soft || C.blueSoft, icon: r.icon || "kanban", builtin: !!r.builtin });
 const acostToRow = (r) => ({ id: r.id, act: r.act, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
 const acostFromRow = (r) => ({ id: r.id, act: r.act, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start: r.start_date, finish: r.finish_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
-const userToRow = (u) => ({ id: u.id, project_key: PROJECT_KEY, name: u.name, username: (u.username || "").toLowerCase(), role: u.role, active: !!u.active, password_hash: u.password_hash || null, password_salt: u.password_salt || null });
-const userFromRow = (r) => ({ id: r.id, name: r.name, username: (r.username || "").toLowerCase(), role: r.role || ROLE.admin, active: r.active !== false, password_hash: r.password_hash || null, password_salt: r.password_salt || null });
+const userToRow = (u) => ({ id: u.id, project_key: PROJECT_KEY, name: u.name, username: (u.username || "").toLowerCase(), role: u.role, active: !!u.active, pending: !!u.pending, password_hash: u.password_hash || null, password_salt: u.password_salt || null });
+const userFromRow = (r) => ({ id: r.id, name: r.name, username: (r.username || "").toLowerCase(), role: r.role || ROLE.admin, active: r.active !== false, pending: !!r.pending, password_hash: r.password_hash || null, password_salt: r.password_salt || null });
 const myToRow = (t) => ({ id: t.id, owner: (t.owner || "").toLowerCase(), text: t.text, done: !!t.done, status: t.status || (t.done ? MST.done : MST.todo), prio: t.prio || "Sedang", due_date: t.due || null, note: t.note || null });
 const myFromRow = (r) => ({ id: r.id, owner: r.owner || "", text: r.text || "", done: !!r.done, status: r.status || (r.done ? MST.done : MST.todo), prio: r.prio || "Sedang", due: r.due_date || "", note: r.note || "" });
 const logToRow = (l) => ({ id: l.id, ts: l.ts, actor: l.actor, action: l.action, detail: l.detail || null });
@@ -797,7 +798,7 @@ function Login({ onLogin, live }) {
   </>);
 
   return wrap("Selamat datang", live ? "Masuk dengan username & password portal." : "Mode DEMO — pilih akun contoh di bawah.", <>
-    <Field label="Username" req><Input type="text" value={u} onChange={(e) => setU(e.target.value.toLowerCase())} placeholder="mis. rardhan" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
+    <Field label="Username" req><Input type="text" value={u} onChange={(e) => setU(e.target.value.toLowerCase())} placeholder="username" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
     <div style={{ height: 12 }} />
     <Field label="Password" req><Input type="password" value={p} onChange={(e) => setP(e.target.value)} placeholder="......" onKeyDown={(e) => e.key === "Enter" && submit()} /></Field>
     <Btn onClick={submit} disabled={busy} style={{ width: "100%", justifyContent: "center", marginTop: 16, opacity: busy ? .7 : 1 }}>{busy ? "Memproses…" : "Masuk"} {!busy && <Ic name="arrow" size={16} />}</Btn>
@@ -1351,14 +1352,14 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>PIC pekerjaan ({(f.assignees || []).length} orang) — otomatis muncul di menu “Tugas Saya” masing-masing</div>
       <div style={{ maxHeight: 168, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 11, padding: 6 }}>
-        {(users || []).filter((u) => u.active).map((u) => { const on = (f.assignees || []).indexOf(u.email) >= 0; return (
-          <button key={u.id} onClick={() => set("assignees", on ? f.assignees.filter((x) => x !== u.email) : [...(f.assignees || []), u.email])}
+        {(users || []).filter((u) => u.active && !u.pending).map((u) => { const un = uname(u); const on = (f.assignees || []).indexOf(un) >= 0; return (
+          <button key={u.id} onClick={() => set("assignees", on ? f.assignees.filter((x) => x !== un) : [...(f.assignees || []), un])}
             style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "7px 9px", borderRadius: 9, border: "none", background: on ? C.violetSoft : "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}>
             <span style={{ width: 18, height: 18, borderRadius: 6, border: `2px solid ${on ? C.violet : "#C7D2DE"}`, background: on ? C.violet : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>{on && <Ic name="check" size={10} />}</span>
             <span style={{ width: 25, height: 25, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</span>
-            <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.ink }}>{u.name}</span><span style={{ display: "block", fontSize: 10.5, color: C.slate }}>{u.email}</span></span>
+            <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: C.ink }}>{u.name}</span><span style={{ display: "block", fontSize: 10.5, color: C.slate }}>{uname(u)}</span></span>
           </button>); })}
-        {(users || []).filter((u) => u.active).length === 0 && <Empty text="Belum ada user aktif." />}
+        {(users || []).filter((u) => u.active && !u.pending).length === 0 && <Empty text="Belum ada user aktif." />}
       </div>
     </div>
 
@@ -1374,7 +1375,7 @@ function Avatars({ emails, users, size = 22 }) {
   if (!list.length) return <span style={{ fontSize: 10.5, color: C.slate }}>belum ditugaskan</span>;
   return <div style={{ display: "flex", alignItems: "center" }}>
     {list.map((em, i) => {
-      const u = users.find((x) => (x.email || "").toLowerCase() === (em || "").toLowerCase());
+      const u = users.find((x) => uname(x) === (em || "").toLowerCase());
       const nm = u ? u.name : em;
       const pm = u && u.role === ROLE.pm;
       return <span key={em} title={nm + (u ? ` · ${u.role}` : "")} style={{ width: size, height: size, borderRadius: 99, background: pm ? C.blueSoft : C.greenSoft, color: pm ? C.blue : C.green, border: "2px solid #fff", marginLeft: i ? -7 : 0, display: "grid", placeItems: "center", fontSize: size * .45, fontWeight: 800, flexShrink: 0 }}>{(nm || "?")[0].toUpperCase()}</span>;
@@ -1411,8 +1412,8 @@ function TaskNoteModal({ task, users, onSave, onClose }) {
   const [note, setNote] = useState(task.note || "");
   const [asg, setAsg] = useState(task.assignees || []);
   const [status, setStatus] = useState(task.status);
-  const toggle = (em) => setAsg((s) => s.includes(em) ? s.filter((x) => x !== em) : [...s, em]);
-  const aktif = users.filter((u) => u.active);
+  const toggle = (un) => setAsg((s) => s.includes(un) ? s.filter((x) => x !== un) : [...s, un]);
+  const aktif = users.filter((u) => u.active && !u.pending);
   return <Modal title="Catatan & Penugasan" onClose={onClose} width={520}>
     <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink, marginBottom: 12 }}>{task.name}</div>
     <Field label="Catatan pekerjaan"><Area value={note} onChange={(e) => setNote(e.target.value)} placeholder="mis. Menunggu approval owner, material sudah dipesan…" style={{ minHeight: 96 }} /></Field>
@@ -1422,11 +1423,11 @@ function TaskNoteModal({ task, users, onSave, onClose }) {
     <div style={{ marginTop: 12 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Ditugaskan kepada ({asg.length} orang)</div>
       <div style={{ maxHeight: 190, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 11, padding: 6 }}>
-        {aktif.map((u) => { const on = asg.includes(u.email); return (
-          <button key={u.id} onClick={() => toggle(u.email)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px", borderRadius: 9, border: "none", background: on ? C.blueSoft : "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}>
+        {aktif.map((u) => { const un = uname(u); const on = asg.includes(un); return (
+          <button key={u.id} onClick={() => toggle(un)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px", borderRadius: 9, border: "none", background: on ? C.blueSoft : "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}>
             <span style={{ width: 19, height: 19, borderRadius: 6, border: `2px solid ${on ? C.blue : "#C7D2DE"}`, background: on ? C.blue : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>{on && <Ic name="check" size={11} />}</span>
             <span style={{ width: 26, height: 26, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11.5, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</span>
-            <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{u.name}</span><span style={{ display: "block", fontSize: 11, color: C.slate }}>{u.email} · {u.role}</span></span>
+            <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{u.name}</span><span style={{ display: "block", fontSize: 11, color: C.slate }}>{uname(u)} · {u.role}</span></span>
           </button>); })}
         {aktif.length === 0 && <Empty text="Belum ada user aktif. Tambahkan di menu Manajemen User." />}
       </div>
@@ -2045,19 +2046,19 @@ function Punchlist({ punch, setPunch, tasks, can, log }) {
 /* modal CRUD tugas pribadi */
 function MyTaskModal({ item, users, me, isPM, onSave, onClose }) {
   const isNew = !item;
-  const [f, setF] = useState(item || { text: "", owner: me.email, status: MST.todo, prio: "Sedang", due: "", note: "" });
+  const [f, setF] = useState(item || { text: "", owner: uname(me), status: MST.todo, prio: "Sedang", due: "", note: "" });
   const [err, setErr] = useState("");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const save = () => {
     if (!f.text.trim()) { setErr("Nama tugas wajib diisi."); return; }
-    onSave({ ...f, text: f.text.trim(), owner: (isPM ? (f.owner || me.email) : me.email).toLowerCase(), done: f.status === MST.done });
+    onSave({ ...f, text: f.text.trim(), owner: (isPM ? (f.owner || uname(me)) : uname(me)).toLowerCase(), done: f.status === MST.done });
   };
   return <Modal title={isNew ? "Tugas Baru" : "Edit Tugas"} onClose={onClose} width={500}>
     <ReqNote />
     <Field label="Nama tugas" req><Input autoFocus value={f.text} onChange={(e) => set("text", e.target.value)} placeholder="mis. Review gambar kerja Lt.21" onKeyDown={(e) => e.key === "Enter" && save()} /></Field>
     <div style={{ marginTop: 12 }}><Field label="Penanggung jawab">
       {isPM
-        ? <Sel value={f.owner} onChange={(e) => set("owner", e.target.value)}>{users.filter((u) => u.active).map((u) => <option key={u.id} value={u.email}>{u.name} — {u.role}</option>)}</Sel>
+        ? <Sel value={f.owner} onChange={(e) => set("owner", e.target.value)}>{users.filter((u) => u.active && !u.pending).map((u) => <option key={u.id} value={uname(u)}>{u.name} — {u.role}</option>)}</Sel>
         : <Input value={me.name + " (Anda)"} disabled />}
     </Field>{!isPM && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 4 }}>Role Admin hanya dapat membuat tugas untuk diri sendiri.</div>}</div>
     <div className="g3" style={{ marginTop: 12, gap: 12 }}>
@@ -2079,7 +2080,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
   const [modal, setModal] = useState(null);
   const [over, setOver] = useState(null);
   const [drag, setDrag] = useState(null);
-  const me = (user.email || "").toLowerCase();
+  const me = uname(user);
   const canEdit = isPM;                            // Admin: hanya tambah + ubah status
   /* PENUGASAN PIC: pekerjaan dari Gantt/Kanban tempat user menjadi PIC
      ikut tampil di sini. Statusnya dua arah — diubah di sini berubah juga
@@ -2087,7 +2088,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
   const assigned = useMemo(() => {
     const leaves = tasks.filter((t) => !tasks.some((x) => x.parent === t.id));
     return leaves
-      .filter((t) => (t.assignees || []).some((em) => (isPM && scope === "all") ? true : (em || "").toLowerCase() === me))
+      .filter((t) => (t.assignees || []).some((un) => (isPM && scope === "all") ? true : (un || "").toLowerCase() === me))
       .map((t) => ({
         id: "w:" + t.id, work: true, workId: t.id, text: t.name, owner: (t.assignees || [])[0] || me,
         assignees: t.assignees || [], status: W2M[t.status] || MST.todo, prio: t.prio || "Sedang",
@@ -2097,7 +2098,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
   }, [tasks, scope, me, isPM]);
   const personal = (isPM && scope === "all") ? mytasks : mytasks.filter((t) => (t.owner || "").toLowerCase() === me);
   const scoped = [...assigned, ...personal];
-  const userOf = (em) => users.find((u) => (u.email || "").toLowerCase() === (em || "").toLowerCase());
+  const userOf = (em) => users.find((u) => uname(u) === (em || "").toLowerCase());
   const stOfT = (t) => t.status || MST.todo;
 
   const upd = (id, patch) => setMytasks((s) => s.map((t) => t.id === id ? { ...t, ...patch } : t));
@@ -2171,7 +2172,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
           <span style={{ width: 30, height: 30, borderRadius: 9, background: C.violetSoft, color: C.violet, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name="tasks" size={16} /></span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Tugas Saya</div>
-            <div style={{ fontSize: 11.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{scope === "all" ? "Semua tugas tim" : `${user.name} · ${user.email}`}</div>
+            <div style={{ fontSize: 11.5, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{scope === "all" ? "Semua tugas tim" : `${user.name} · ${uname(user)}`}</div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -2341,7 +2342,7 @@ function MyTaskView({ task, owner, onClose }) {
 /* ===== MANAJEMEN USER (khusus Project Management) ===== */
 function UserModal({ item, existing, onSaved, onClose }) {
   const isNew = !item;
-  const [f, setF] = useState(item || { id: uid(), name: "", username: "", role: ROLE.admin, active: true });
+  const [f, setF] = useState(item || { id: uid(), name: "", username: "", role: ROLE.admin, active: true, pending: true });
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2362,7 +2363,7 @@ function UserModal({ item, existing, onSaved, onClose }) {
     try {
       const r = await portalUpsertUser({ ...f, username: un }, (isNew || pw) ? pw : null);
       if (!r.ok) { setErr(r.msg || "Gagal menyimpan."); setBusy(false); return; }
-      onSaved({ ...f, username: un }, isNew ? `User ${f.name} dibuat. Beri tahu username “${un}” dan passwordnya.` : `Perubahan untuk ${f.name} tersimpan.`, isNew);
+      onSaved({ ...f, username: un, pending: isNew ? true : (f.pending || false) }, isNew ? ("User " + f.name + " dibuat \u2014 menunggu persetujuan Project Management sebelum bisa login.") : ("Perubahan untuk " + f.name + " tersimpan."), isNew);
     } catch (e) { setErr(e.message || "Gagal menyimpan."); setBusy(false); }
   };
   return <Modal title={isNew ? "Tambah User" : "Edit User"} onClose={onClose} width={470}>
@@ -2380,7 +2381,7 @@ function UserModal({ item, existing, onSaved, onClose }) {
       {!isNew && <Field label="Status akses"><Sel value={f.active ? "Aktif" : "Nonaktif"} onChange={(e) => set("active", e.target.value === "Aktif")}><option>Aktif</option><option>Nonaktif</option></Sel></Field>}
     </div>
     <div style={{ marginTop: 12, fontSize: 12, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px" }}>
-      {isNew ? "Akun dibuat langsung di portal ini — tanpa email, tanpa verifikasi. User cukup login dengan username dan password di atas."
+      {isNew ? "Akun dibuat langsung di portal ini. Akun baru akan berstatus \"Menunggu Persetujuan\" dan harus disetujui oleh Project Management sebelum user bisa login."
              : "Kosongkan kolom password bila tidak ingin menggantinya. Status “Nonaktif” langsung memblokir login user ini."}
     </div>
     {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, lineHeight: 1.55, background: "#FDECEF", border: `1px solid ${C.red}44`, borderRadius: 10, padding: "10px 12px" }}>{err}</div>}
@@ -2433,34 +2434,71 @@ function UsersPage({ users, setUsers, mytasks, me, log }) {
     if (!r.ok) { setFlash("Gagal menghapus: " + r.msg); setTimeout(() => setFlash(""), 6000); return; }
     setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Hapus akun user", u.name);
   };
-  const taskOf = (email) => mytasks.filter((t) => (t.owner || "").toLowerCase() === (email || "").toLowerCase());
+  const taskOf = (un) => mytasks.filter((t) => (t.owner || "").toLowerCase() === (un || "").toLowerCase());
+  const pendingUsers = users.filter((u) => u.pending);
+  const activeUsers = users.filter((u) => !u.pending);
+  const approveUser = async (u) => {
+    const updated = { ...u, pending: false, active: true };
+    const r = await portalUpsertUser(updated, null);
+    if (!r.ok) { setFlash("Gagal menyetujui: " + (r.msg || "")); setTimeout(() => setFlash(""), 6000); return; }
+    setUsers((s) => s.map((x) => x.id === u.id ? updated : x));
+    log && log("Setujui akun baru", u.name + " \u00b7 " + uname(u));
+    setFlash("Akun " + u.name + " (" + uname(u) + ") disetujui dan sekarang aktif."); setTimeout(() => setFlash(""), 6000);
+  };
+  const rejectUser = async (u) => {
+    if (!window.confirm("Tolak dan hapus akun " + u.name + " (" + uname(u) + ")?")) return;
+    const r = await portalDeleteUser(u.id);
+    if (!r.ok) { setFlash("Gagal menghapus: " + (r.msg || "")); setTimeout(() => setFlash(""), 6000); return; }
+    setUsers((s) => s.filter((x) => x.id !== u.id)); log && log("Tolak akun baru", u.name);
+    setFlash("Akun " + u.name + " ditolak dan dihapus."); setTimeout(() => setFlash(""), 6000);
+  };
   return <div className="g1">
     <div className="g4">
-      <Stat label="Total User" value={users.length} icon="users" color={C.ink} />
-      <Stat label="Project Management" value={users.filter((u) => u.role === ROLE.pm).length} icon="compass" color={C.blue} />
-      <Stat label="Admin" value={users.filter((u) => u.role === ROLE.admin).length} icon="check" color={C.green} />
-      <Stat label="Nonaktif" value={users.filter((u) => !u.active).length} icon="x" color={C.red} />
+      <Stat label="Total User" value={activeUsers.length} icon="users" color={C.ink} />
+      <Stat label="Project Management" value={activeUsers.filter((u) => u.role === ROLE.pm).length} icon="compass" color={C.blue} />
+      <Stat label="Admin" value={activeUsers.filter((u) => u.role === ROLE.admin).length} icon="check" color={C.green} />
+      <Stat label="Menunggu Persetujuan" value={pendingUsers.length} icon="clock" color={C.amber} />
     </div>
+    {pendingUsers.length > 0 && <Card>
+      <CardHead icon="alert" title={"Perlu Persetujuan Akun Baru (" + pendingUsers.length + ")"} color={C.amber} />
+      <div style={{ fontSize: 12.5, color: C.slate, background: "#FCF3E2", border: "1px solid " + C.amber, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
+        Akun berikut baru dibuat dan <b>belum bisa login</b> sampai disetujui oleh Project Management. Pastikan Anda mengenal orang ini sebelum menyetujui.
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {pendingUsers.map((u) => <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: "1px solid " + C.amber + "50", borderRadius: 12, background: "#FFFCF5", flexWrap: "wrap" }}>
+          <div style={{ width: 36, height: 36, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div>
+          <div style={{ flex: 1, minWidth: 120 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{u.name}</div>
+            <div style={{ fontSize: 11.5, color: C.slate }}>Username: <b style={{ fontFamily: "monospace" }}>{uname(u)}</b> &middot; Role: {u.role}</div>
+          </div>
+          <Pill text="Menunggu" color={C.amber} bg="#FDF3E2" />
+          <div style={{ display: "flex", gap: 6 }}>
+            <Btn size="sm" onClick={() => approveUser(u)}><Ic name="check" size={13} /> Setujui</Btn>
+            <Btn size="sm" kind="ghost" onClick={() => rejectUser(u)} style={{ color: C.red, borderColor: C.red + "44" }}><Ic name="x" size={13} /> Tolak</Btn>
+          </div>
+        </div>)}
+      </div>
+    </Card>}
     <Card>
       <CardHead icon="users" title="Manajemen User" color={C.violet} right={<Btn onClick={() => setModal({})}><Ic name="userPlus" size={16} /> Tambah User</Btn>} />
-      {flash && <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, color: C.ink, borderRadius: 10, padding: "10px 12px", fontSize: 12.5, marginBottom: 14 }}>{flash}</div>}
-      <div style={{ fontSize: 12.5, color: C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
-        Akun dibuat <b>langsung dari portal ini</b>: cukup Nama Karyawan, Username, Password, dan Role. Tidak perlu email, tidak ada verifikasi, dan tidak perlu membuka menu Authentication di Supabase.
+      {flash && <div style={{ background: C.greenSoft, border: "1px solid " + C.green, color: C.ink, borderRadius: 10, padding: "10px 12px", fontSize: 12.5, marginBottom: 14 }}>{flash}</div>}
+      <div style={{ fontSize: 12.5, color: C.slate, background: C.bg, border: "1px solid " + C.line, borderRadius: 10, padding: "10px 12px", marginBottom: 14 }}>
+        Akun dibuat <b>langsung dari portal ini</b>: cukup Nama Karyawan, Username, Password, dan Role. Akun baru harus disetujui oleh Project Management sebelum dapat digunakan untuk login.
       </div>
       <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
         <thead><tr><th style={th}>Nama</th><th style={th}>Username</th><th style={th}>Role</th><th style={th}>Akses</th><th style={{ ...th, textAlign: "right" }}>Tugas</th><th style={{ ...th, width: 76 }}></th></tr></thead>
-        <tbody>{users.map((u) => { const tc = taskOf(u.email); return <tr key={u.id} style={{ opacity: u.active ? 1 : .6 }}>
+        <tbody>{activeUsers.map((u) => { const tc = taskOf(uname(u)); return <tr key={u.id} style={{ opacity: u.active ? 1 : .6 }}>
           <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><div style={{ width: 32, height: 32, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</div><div><div style={{ fontWeight: 600 }}>{u.name}</div>{uname(u) === uname(me) && <div style={{ fontSize: 10.5, color: C.violet, fontWeight: 700 }}>akun Anda</div>}</div></div></td>
-          <td style={td}><div style={{ fontFamily: "monospace", fontSize: 12.5, color: C.ink }}>{uname(u)}</div><div style={{ fontSize: 10, color: "#A9B7C6" }}>{u.email}</div></td>
+          <td style={td}><div style={{ fontFamily: "monospace", fontSize: 12.5, color: C.ink }}>{uname(u)}</div><div style={{ fontSize: 10, color: "#A9B7C6" }}>{u.role}</div></td>
           <td style={td}><Pill text={u.role} color={u.role === ROLE.pm ? C.blue : C.green} bg={u.role === ROLE.pm ? C.blueSoft : C.greenSoft} /></td>
           <td style={td}><Pill text={u.active ? "Aktif" : "Nonaktif"} color={u.active ? C.green : C.red} bg={u.active ? C.greenSoft : "#FDECEF"} /></td>
           <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.slate }}>{tc.filter((t) => (t.status || MST.todo) === MST.done).length}/{tc.length}</td>
           <td style={td}><div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
             <button title="Edit" onClick={() => setModal({ item: u })} style={iconBtn}><Ic name="pencil" size={14} /></button>
-            <button title={u.email === me.email ? "Tidak bisa mencabut akses sendiri" : "Cabut akses"} onClick={() => del(u)} disabled={u.email === me.email} style={{ ...iconBtn, color: u.email === me.email ? "#C7D2DE" : C.red, cursor: u.email === me.email ? "not-allowed" : "pointer" }}><Ic name="trash" size={14} /></button>
+            <button title={uname(u) === uname(me) ? "Tidak bisa mencabut akses sendiri" : "Cabut akses"} onClick={() => del(u)} disabled={uname(u) === uname(me)} style={{ ...iconBtn, color: uname(u) === uname(me) ? "#C7D2DE" : C.red, cursor: uname(u) === uname(me) ? "not-allowed" : "pointer" }}><Ic name="trash" size={14} /></button>
           </div></td>
         </tr>; })}
-        {users.length === 0 && <tr><td colSpan={6}><Empty text="Belum ada user." /></td></tr>}
+        {activeUsers.length === 0 && <tr><td colSpan={6}><Empty text="Belum ada user." /></td></tr>}
         </tbody></table></div>
     </Card>
     {modal && <UserModal item={modal.item} existing={users} onSaved={saved} onClose={() => setModal(null)} />}
@@ -2837,7 +2875,7 @@ function App() {
   const userRef = useRef(null); userRef.current = user;
   const log = useMemo(() => (action, detail) => {
     const u = userRef.current;
-    setLogs((s) => [{ id: uid(), ts: nowISO(), actor: u ? (u.name || u.email) : "Sistem", action, detail: detail || "" }, ...s].slice(0, 1000));
+    setLogs((s) => [{ id: uid(), ts: nowISO(), actor: u ? (u.name || uname(u)) : "Sistem", action, detail: detail || "" }, ...s].slice(0, 1000));
   }, []);
 
   const scToday = useMemo(() => todayMarkerData(rab, fee, terms, trans, acosts), [rab, fee, terms, trans, acosts, acts]);
@@ -2847,7 +2885,7 @@ function App() {
   const overall = useMemo(() => progressOf(tasks, null), [tasks]);
   const nextPay = terms.filter((t) => D(t.date) >= D(PROJECT.statusDate)).sort((a, b) => D(a.date) - D(b.date))[0];
   const punchOpen = punch.filter((p) => p.status !== PST.done).length;
-  const myOpen = user ? mytasks.filter((t) => (t.owner || "").toLowerCase() === (user.email || "").toLowerCase() && !t.done).length : 0;
+  const myOpen = user ? mytasks.filter((t) => (t.owner || "").toLowerCase() === uname(user) && !t.done).length : 0;
 
   const exportSCurvePNG = () => {
     const svg = scWrapRef.current && scWrapRef.current.querySelector("svg");
