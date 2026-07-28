@@ -829,7 +829,7 @@ function PaymentChart({ data, acts }) {
   const [pngBusy, setPngBusy] = useState(false);
   const chartRef = React.useRef(null);
   const exportPng = () => { setPngBusy(true); exportNodeToPptPng(chartRef.current, "Grafik-Pembayaran" + (focus ? "-" + focus : "") + "-4x3.png", { title: "Grafik Pembayaran" + (focus ? " — " + focus : " — Semua Kegiatan"), subtitle: PROJECT.name + " · nominal per bulan · status per " + fmtDate(PROJECT.statusDate) }).then(() => setPngBusy(false)); };
-  const W = 900, H = 280, pad = { l: 68, r: 16, t: 16, b: 36 };
+  const W = 960, H = 300, pad = { l: 72, r: 46, t: 24, b: 38 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, n = data.length;
   if (!n) return <div style={{ fontSize: 12.5, color: C.slate, padding: 20, textAlign: "center" }}>Belum ada data pembayaran.</div>;
   const maxV = Math.max(...data.map((d) => focus ? (d[focus] || 0) : d.total), 1);
@@ -858,7 +858,7 @@ function PaymentChart({ data, acts }) {
         {!focus && <><path d={areaOf("total")} fill="#E8ECF0" opacity=".25" /><path d={pathOf("total")} fill="none" stroke={C.ink} strokeWidth="1.8" strokeDasharray="5 4" /></>}
         {data.map((d, i) => { const v = focus ? (d[focus] || 0) : d.total; return v > 0 ? <g key={i}>
           <circle cx={x(i)} cy={y(v)} r="3.5" fill={focus ? (acts.find((a) => a.label === focus)?.color || C.violet) : C.ink} stroke="#fff" strokeWidth="1.2" />
-          <text x={x(i)} y={y(v) - 7} textAnchor="middle" fontSize="7.5" fontWeight="700" fill={C.ink}>{rpShort(v)}</text>
+          <text x={Math.min(W - 4, Math.max(4, x(i)))} y={Math.max(10, y(v) - 7)} textAnchor={i === 0 ? "start" : (i === n - 1 ? "end" : "middle")} fontSize="8" fontWeight="700" fill={C.ink}>{rpShort(v)}</text>
         </g> : null; })}
       </svg>
     </div>
@@ -918,11 +918,45 @@ function composeAndDownload(srcCanvas, filename, opts) {
 /* Render sebuah node DOM ke kanvas beresolusi tinggi lalu susun ke 4:3.
    Skala capture dipilih agar konten mengisi lebar area 4:3 dengan tajam,
    tetapi dibatasi agar kanvas tidak terlalu besar untuk timeline panjang. */
+/* Render SVG murni ke kanvas beresolusi tinggi (tanpa html2canvas) supaya
+   tidak ada bagian yang terpotong oleh overflow container. */
+function svgToCanvas(svg, targetW) {
+  return new Promise((resolve, reject) => {
+    const vb = svg.viewBox && svg.viewBox.baseVal;
+    const vw = vb && vb.width ? vb.width : (svg.clientWidth || 900);
+    const vh = vb && vb.height ? vb.height : (svg.clientHeight || 280);
+    const clone = svg.cloneNode(true);
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", vw); clone.setAttribute("height", vh);
+    clone.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    const xml = new XMLSerializer().serializeToString(clone);
+    const img = new Image();
+    img.onload = () => {
+      const cw = targetW || 2600, ch = Math.round(cw * vh / vw);
+      const canvas = document.createElement("canvas"); canvas.width = cw; canvas.height = ch;
+      const ctx = canvas.getContext("2d"); ctx.imageSmoothingQuality = "high";
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cw, ch);
+      ctx.drawImage(img, 0, 0, cw, ch);
+      resolve(canvas);
+    };
+    img.onerror = reject;
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  });
+}
+/* Render sebuah node DOM ke kanvas beresolusi tinggi lalu susun ke 16:9.
+   Bila node berisi TEPAT satu <svg>, gunakan jalur SVG (anti-terpotong);
+   selain itu pakai html2canvas. */
 function exportNodeToPptPng(node, filename, opts) {
-  if (!node || !window.html2canvas) { alert("Modul export belum siap. Coba lagi."); return Promise.resolve(false); }
-  const cssW = node.scrollWidth || node.offsetWidth || 1200;
+  if (!node) { alert("Modul export belum siap. Coba lagi."); return Promise.resolve(false); }
   const availW = PPT_W - ((opts && opts.padX != null ? opts.padX : 60) * 2);
-  // skala target: cukup untuk memenuhi lebar 4:3, minimal 2x, maksimal 4x
+  const tag = (el) => (el && el.tagName ? String(el.tagName).toLowerCase() : "");
+  const onlySvg = tag(node) === "svg" ? node : (node.querySelectorAll && node.querySelectorAll("svg").length === 1 && node.children.length === 1 && tag(node.firstElementChild) === "svg" ? node.firstElementChild : null);
+  if (onlySvg) {
+    return svgToCanvas(onlySvg, Math.min(4000, Math.round(availW))).then((canvas) => { composeAndDownload(canvas, filename, opts); return true; })
+      .catch(() => { alert("Gagal membuat PNG."); return false; });
+  }
+  if (!window.html2canvas) { alert("Modul export belum siap. Coba lagi."); return Promise.resolve(false); }
+  const cssW = node.scrollWidth || node.offsetWidth || 1200;
   let scale = Math.max(2, Math.min(4, (availW / cssW) * 1.15));
   if (cssW * scale > 9000) scale = 9000 / cssW;        // batasi lebar kanvas sumber
   return window.html2canvas(node, { backgroundColor: "#ffffff", scale, logging: false, useCORS: true, windowWidth: cssW })
@@ -1924,7 +1958,7 @@ function CostTable({ title, icon, color, rows, setRows, log, tag, addLabel, foot
   return <Card>
     <CardHead icon={icon} color={color} title={title} right={<div style={{ fontSize: 13, color: C.slate }}>Total <b style={{ color }}>{rp(total)}</b></div>} />
     <div className="scrollx"><table style={{ width: "100%", borderCollapse: "collapse", minWidth: 820 }}>
-      <thead><tr><th style={th}>Paket Pekerjaan</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Unit Rate</th><th style={{ ...th, textAlign: "right" }}>Amount</th><th style={th}>Mulai</th><th style={th}>Selesai</th><th style={{ ...th, textAlign: "center" }}>Bukti</th><th style={th}></th></tr></thead>
+      <thead><tr><th style={th}>Paket Pekerjaan</th><th style={{ ...th, textAlign: "right" }}>Qty</th><th style={{ ...th, textAlign: "right" }}>Harga Satuan</th><th style={{ ...th, textAlign: "right" }}>Nilai</th><th style={th}>Mulai</th><th style={th}>Selesai</th><th style={{ ...th, textAlign: "center" }}>Bukti</th><th style={th}></th></tr></thead>
       <tbody>{rows.map((r) => <tr key={r.id}>
         <td style={{ ...td, minWidth: 190 }}><Cell readOnly={!can.manage} value={r.item} onChange={(v) => upd(r.id, "item", v)} /></td>
         <td style={{ ...td, width: 76 }}><Cell readOnly={!can.manage} type="number" align="right" value={r.qty} onChange={(v) => upd(r.id, "qty", v)} /></td>
@@ -3420,7 +3454,7 @@ function App() {
       return <aside style={{ width: W, background: "#fff", borderRight: `1px solid ${C.line}`, flexShrink: 0, display: "flex", flexDirection: "column", position: isMobile ? "fixed" : "sticky", left: 0, top: 0, height: "100vh", zIndex: 61, overflowY: "auto", overflowX: "hidden", transition: "width .18s ease" }}>
         <div style={{ padding: mini ? "16px 0" : 18, display: "flex", alignItems: "center", justifyContent: mini ? "center" : "flex-start", gap: 10, borderBottom: `1px solid ${C.line}` }}>
           <Logo size={mini ? 32 : 36} radius={10} />
-          {!mini && <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 14.5, color: C.ink }}>Selamat Bekerja!</div></div>}
+          {!mini && <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 14.5, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={user.name}>Gass, {user.name}</div></div>}
           {!mini && !isMobile && <button onClick={() => setRail(true)} title="Ciutkan menu" style={iconBtn}><Ic name="chevL" size={18} /></button>}
           {isMobile && <button onClick={() => setSidebar(false)} style={iconBtn}><Ic name="x" size={18} /></button>}
         </div>
