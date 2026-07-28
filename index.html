@@ -32,6 +32,9 @@
     .g4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
     .g3 { grid-template-columns: minmax(0,1fr); }
   }
+  @media (max-width: 760px) {
+    .scurve-grid { grid-template-columns: minmax(0,1fr) !important; }
+  }
   @media (max-width: 620px) {
     .wrap { padding: 14px; }
     .g4, .g2 { grid-template-columns: minmax(0,1fr); }
@@ -198,6 +201,7 @@ const ICONS = {
   pencil: (<g><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></g>),
   trash: (<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />),
   x: (<path d="M18 6 6 18M6 6l12 12" />),
+  expand: (<g><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></g>),
   trending: (<g><path d="M22 7 13.5 15.5 8.5 10.5 2 17" /><path d="M16 7h6v6" /></g>),
   dollar: (<g><circle cx="12" cy="12" r="10" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8M12 6v2m0 8v2" /></g>),
   check: (<path d="M20 6 9 17l-5-5" />),
@@ -648,13 +652,29 @@ function todayMarkerData(rab, fee, terms, trans, acosts) {
   else { idx = n - 1; for (let i = 0; i < n - 1; i++) { if (td >= ps[i] && td <= ps[i + 1]) { idx = i + (td - ps[i]) / (ps[i + 1] - ps[i]); break; } } }
   return { idx, n, vals: valsAt(rab, fee, terms, trans, acosts, td), label: `${td.getDate()} ${MON[td.getMonth()]}` };
 }
+/* Ubah rangkaian titik {x,y} menjadi path SVG melengkung halus (Catmull-Rom).
+   clampLo/clampHi mencegah lengkungan melewati batas (mis. 0..100). */
+function smoothPath(pts, clampLo, clampHi) {
+  const p = pts.filter((q) => q && isFinite(q.x) && isFinite(q.y));
+  if (p.length < 2) return p.length ? `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}` : "";
+  const cl = (v) => (clampLo != null ? Math.max(clampLo, Math.min(clampHi, v)) : v);
+  let d = `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`;
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p[i + 1];
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = cl(p1.y + (p2.y - p0.y) / 6);
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = cl(p2.y - (p3.y - p1.y) / 6);
+    d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
 const seriesList = () => [...ACTS.map((a) => [a.label, a.color]), ["Total", C.ink]];
 function SCurveChart({ data, today }) {
   const W = 1080, H = 260, pad = { l: 34, r: 16, t: 14, b: 24 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, n = data.length;
   const x = (i) => pad.l + (n <= 1 ? 0 : i * (iw / (n - 1)));
   const y = (v) => pad.t + ih - (v / 100) * ih;
-  const path = (k) => data.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d[k]).toFixed(1)}`).join(" ");
+  const path = (k) => smoothPath(data.map((d, i) => ({ x: x(i), y: y(d[k]) })), pad.t, pad.t + ih);
   const tx = today ? x(today.idx) : null;
   const boxW = 128, boxH = 24 + seriesList().length * 11;
   const rightSide = tx != null && tx > W - pad.r - boxW - 12;
@@ -679,21 +699,6 @@ function SCurveChart({ data, today }) {
   );
 }
 
-/* Ubah rangkaian titik {x,y} menjadi path SVG melengkung halus (Catmull-Rom).
-   clampLo/clampHi mencegah lengkungan melewati batas (mis. 0..100). */
-function smoothPath(pts, clampLo, clampHi) {
-  const p = pts.filter((q) => q && isFinite(q.x) && isFinite(q.y));
-  if (p.length < 2) return p.length ? `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}` : "";
-  const cl = (v) => (clampLo != null ? Math.max(clampLo, Math.min(clampHi, v)) : v);
-  let d = `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`;
-  for (let i = 0; i < p.length - 1; i++) {
-    const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p[i + 1];
-    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = cl(p1.y + (p2.y - p0.y) / 6);
-    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = cl(p2.y - (p3.y - p1.y) / 6);
-    d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
-  }
-  return d;
-}
 
 /* ===== S-CURVE PER KEGIATAN ===== */
 function sCurveForAct(actKey, tasks) {
@@ -719,8 +724,8 @@ function sCurveForAct(actKey, tasks) {
     return { label: `${MON[d.getMonth()]} ${String(d.getDate()).padStart(2,"0")}`, plan: W ? +(planD / W * 100).toFixed(1) : 0, actual: (past && W) ? +(actD / W * 100).toFixed(1) : null };
   });
 }
-function ActSCurveChart({ data, color, soft }) {
-  const W = 1000, H = 250, pad = { l: 40, r: 16, t: 14, b: 26 };
+function ActSCurveChart({ data, color, soft, big }) {
+  const W = 1000, H = big ? 380 : 250, pad = { l: 40, r: 16, t: 16, b: big ? 34 : 26 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, n = data.length;
   const x = (i) => pad.l + (n <= 1 ? 0 : i * (iw / (n - 1)));
   const y = (v) => pad.t + ih - (Math.max(0, Math.min(100, v)) / 100) * ih;
@@ -735,8 +740,8 @@ function ActSCurveChart({ data, color, soft }) {
   const lastAct = actPts.length ? actPts[actPts.length - 1] : null;
   return <div style={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" style={{ display: "block", width: "100%", height: "auto" }}>
-      {[0, 25, 50, 75, 100].map((g) => <g key={g}><line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={pad.l - 5} y={y(g) + 3} textAnchor="end" fontSize="8" fill={C.slate}>{g}%</text></g>)}
-      {data.map((d, i) => (i % 4 === 0 ? <text key={i} x={x(i)} y={H - 6} textAnchor="middle" fontSize="7.5" fill={C.slate}>{d.label}</text> : null))}
+      {[0, 25, 50, 75, 100].map((g) => <g key={g}><line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={pad.l - 5} y={y(g) + 3} textAnchor="end" fontSize={big ? "10" : "8"} fill={C.slate}>{g}%</text></g>)}
+      {data.map((d, i) => (i % (big ? 2 : 4) === 0 ? <text key={i} x={x(i)} y={H - 6} textAnchor="middle" fontSize={big ? "9" : "7.5"} fill={C.slate}>{d.label}</text> : null))}
       <path d={areaFrom(planPath, planPts)} fill={soft || "#EEF3F8"} opacity=".35" />
       <path d={planPath} fill="none" stroke={C.slate} strokeWidth="1.5" strokeDasharray="4 3" />
       <path d={areaFrom(actPath, actPts)} fill={color || C.violet} opacity=".12" />
@@ -749,6 +754,42 @@ function ActSCurveChart({ data, color, soft }) {
       <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 0, borderTop: `2px dashed ${C.slate}` }} />Rencana</span>
       <span style={{ display: "flex", alignItems: "center", gap: 5, color: color || C.violet, fontWeight: 600 }}><span style={{ width: 14, height: 2.5, background: color || C.violet, borderRadius: 2 }} />Aktual (s/d hari ini)</span>
       <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.amber, fontWeight: 600 }}><span style={{ width: 14, height: 2.5, background: C.amber, borderRadius: 2 }} />Hari ini</span>
+    </div>
+  </div>;
+}
+
+/* ===== MODAL PERBESAR S-CURVE KEGIATAN ===== */
+function ActSCurveModal({ act, tasks, onClose }) {
+  const ref = React.useRef(null);
+  const [busy, setBusy] = React.useState(false);
+  const data = React.useMemo(() => sCurveForAct(act.key, tasks), [act, tasks]);
+  const savePng = () => {
+    const node = ref.current;
+    if (!node || !window.html2canvas) { alert("Modul export belum siap. Coba lagi."); return; }
+    setBusy(true);
+    window.html2canvas(node, { backgroundColor: "#ffffff", scale: 2, logging: false }).then((canvas) => {
+      const a = document.createElement("a"); a.href = canvas.toDataURL("image/png"); a.download = `S-Curve-${act.label}.png`; a.click(); setBusy(false);
+    }).catch(() => { setBusy(false); alert("Gagal membuat PNG."); });
+  };
+  return <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(19,41,61,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
+    <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: 960, maxWidth: "100%", maxHeight: "94vh", overflow: "auto", boxShadow: "0 30px 70px rgba(19,41,61,.3)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: `1px solid ${C.line}`, gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <span style={{ width: 32, height: 32, borderRadius: 9, background: act.soft, color: act.color, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={act.icon} size={17} /></span>
+          <div style={{ minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 16, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>S-Curve — {act.label}</div><div style={{ fontSize: 12, color: C.slate }}>Progres {progressOf(tasks, act.key)}% · rencana vs aktual</div></div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <Btn size="sm" kind="ghost" onClick={savePng} disabled={busy}><Ic name="download" size={15} /> {busy ? "Menyiapkan…" : "Screenshot PNG"}</Btn>
+          <button onClick={onClose} style={{ ...iconBtn, border: `1px solid ${C.line}`, width: 34, height: 34 }}><Ic name="x" size={18} /></button>
+        </div>
+      </div>
+      <div style={{ padding: 20 }}>
+        <div ref={ref} style={{ background: "#fff", padding: 16, borderRadius: 12 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: C.ink, marginBottom: 2 }}>S-Curve — {act.label}</div>
+          <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 12 }}>{PROJECT.name} · status per {fmtDate(PROJECT.statusDate)}</div>
+          <ActSCurveChart data={data} color={act.color} soft={act.soft} big />
+        </div>
+      </div>
     </div>
   </div>;
 }
@@ -3140,6 +3181,7 @@ function App() {
   const [diag, setDiag] = useState(false);
   const [pwModal, setPwModal] = useState(false);
   const [msSummary, setMsSummary] = useState(false);
+  const [scZoom, setScZoom] = useState(null);   // kegiatan yang S-Curve-nya diperbesar
   const syncSt = useSyncState();
   const ganttRef = useRef(null);
   const scWrapRef = useRef(null);
@@ -3435,16 +3477,20 @@ function App() {
           </Card>
 
           <Card>
-            <CardHead icon="trending" title="S-Curve per Kegiatan" right={<span style={{ fontSize: 12, color: C.slate }}>rencana vs aktual, masing-masing kegiatan</span>} />
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: 16 }}>
-              {acts.map((a) => <div key={a.key} style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: 12, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <span style={{ width: 26, height: 26, borderRadius: 8, background: a.soft, color: a.color, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={a.icon} size={14} /></span>
-                  <span style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 800, color: a.color }}>{progressOf(tasks, a.key)}%</span>
+            <CardHead icon="trending" title="S-Curve per Kegiatan" right={<span style={{ fontSize: 12, color: C.slate }}>klik grafik untuk memperbesar & screenshot</span>} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 16 }} className="scurve-grid">
+              {acts.map((a) => <button key={a.key} onClick={() => setScZoom(a)} title={`Perbesar S-Curve ${a.label}`}
+                style={{ border: `1px solid ${C.line}`, borderRadius: 14, padding: 16, minWidth: 0, background: "#fff", cursor: "pointer", textAlign: "left", transition: ".15s", display: "block" }}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 6px 18px rgba(16,42,67,.10)"; e.currentTarget.style.borderColor = a.color; }}
+                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = C.line; }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
+                  <span style={{ width: 30, height: 30, borderRadius: 8, background: a.soft, color: a.color, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={a.icon} size={16} /></span>
+                  <span style={{ fontWeight: 700, fontSize: 14.5, color: C.ink, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 13, fontWeight: 800, color: a.color }}>{progressOf(tasks, a.key)}%</span>
+                  <span style={{ color: C.slate, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name="expand" size={15} /></span>
                 </div>
                 <ActSCurveChart data={sCurveForAct(a.key, tasks)} color={a.color} soft={a.soft} />
-              </div>)}
+              </button>)}
             </div>
           </Card>
         </div>}
@@ -3461,6 +3507,7 @@ function App() {
       </div>
     </main>
 
+    {scZoom && <ActSCurveModal act={scZoom} tasks={tasks} onClose={() => setScZoom(null)} />}
     {diag && <DiagModal onClose={() => setDiag(false)} />}
     {pwModal && <PasswordModal me={user} onClose={() => setPwModal(false)} log={log} />}
     {exportAct && <div style={{ position: "fixed", left: -99999, top: 0, zIndex: -1 }}>
