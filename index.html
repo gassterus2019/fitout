@@ -869,14 +869,15 @@ function PaymentChart({ data, acts }) {
 }
 
 /* =========================================================================
-   EKSPOR PNG BERKUALITAS TINGGI, RASIO 4:3 UNTUK POWERPOINT
+   EKSPOR PNG BERKUALITAS TINGGI, RASIO 16:9 (WIDESCREEN) UNTUK POWERPOINT
    -------------------------------------------------------------------------
    Menyusun gambar sumber (hasil html2canvas atau <img> dari SVG) ke atas
-   kanvas 4:3 beresolusi tinggi: latar putih, konten di-*contain* (utuh,
-   tanpa distorsi) dan diletakkan rapi. Timeline sepanjang apa pun tetap
-   menghasilkan file 4:3 yang tajam dan pas satu halaman slide.
+   kanvas 16:9 beresolusi tinggi: latar putih, konten di-*contain* (utuh,
+   tanpa distorsi), dilebarkan penuh dan diletakkan di ATAS sehingga ruang
+   kosong (bila ada) jatuh di BAWAH — bukan di kiri/kanan. Timeline sepanjang
+   apa pun tetap menghasilkan file 16:9 yang tajam dan mengisi lebar slide.
    ========================================================================= */
-const PPT_W = 2600, PPT_H = 1950;               // 4:3, ~ setara 260 DPI di slide 10"x7.5"
+const PPT_W = 3200, PPT_H = 1800;               // 16:9 (widescreen), ~240 DPI di slide 13.33"x7.5"
 function composeAndDownload(srcCanvas, filename, opts) {
   const o = opts || {};
   const padX = o.padX != null ? o.padX : 60;
@@ -890,10 +891,14 @@ function composeAndDownload(srcCanvas, filename, opts) {
   // area yang tersedia untuk konten
   const availW = PPT_W - padX * 2, availH = PPT_H - padTop - padBottom;
   const sw = srcCanvas.width, sh = srcCanvas.height;
-  const scale = Math.min(availW / sw, availH / sh);   // contain: utuh, tak terpotong
+  /* UTAMAKAN penuhi lebar; hanya perkecil bila tingginya melebihi area.
+     Karena chart ekspor dibuat rasio >= ~1.9, hasilnya selalu penuh di lebar
+     dan ruang kosong jatuh di BAWAH (bukan kiri-kanan). */
+  let scale = availW / sw;
+  if (sh * scale > availH) scale = availH / sh;
   const dw = sw * scale, dh = sh * scale;
-  const dx = (PPT_W - dw) / 2;                          // rata tengah horizontal
-  const dy = padTop + (availH - dh) / 2;                // rata tengah vertikal di area konten
+  const dx = (PPT_W - dw) / 2;                          // rata tengah horizontal (penuh bila selebar area)
+  const dy = padTop;                                    // rata atas -> ruang kosong di bawah
   ctx.drawImage(srcCanvas, dx, dy, dw, dh);
   // judul & catatan opsional
   if (o.title) {
@@ -1188,11 +1193,7 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
   const [tip, setTip] = useState(null);
   const w = useWinW();
   const compact = w < 760;
-  const wpx = forExport ? 22 : (compact ? 24 : 30);      // lebar 1 minggu (px)
-  const px = wpx / 7;                                     // lebar 1 hari
-  const rowsN = useMemo(() => buildRows(tasks, act, {}, forExport).length, [tasks, act, forExport]);
-  const hsG = forExport ? Math.min(1.9, Math.max(1, 20 / Math.max(8, rowsN))) : 1;
-  const rh = forExport ? Math.round(44 * hsG) : 42, hMon = forExport ? 32 : 22, hWk = forExport ? 26 : 20;
+  const rh = forExport ? 40 : 42, hMon = forExport ? 32 : 22, hWk = forExport ? 26 : 20;
   const hh = hMon + hWk;
   const leftW = forExport ? 340 : (compact ? 186 : (editable ? 392 : 286));
   const pbH = forExport ? 18 : 12, tbH2 = forExport ? 28 : 18;   // tinggi bar ekspor
@@ -1210,6 +1211,17 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
   }, [rows, statusDate]);
 
   const totalDays = days(range.min, range.max) + 1;
+  /* Lebar 1 hari (px). Saat EKSPOR, lebarkan timeline agar rasio chart >= ~1.9
+     (lebih lebar dari 16:9): hasil ekspor selalu penuh di lebar, ruang kosong
+     jatuh di BAWAH (bukan kiri-kanan). Dibatasi min/maks agar bar wajar. */
+  const px = useMemo(() => {
+    const base = (forExport ? 22 : (compact ? 24 : 30)) / 7;
+    if (!forExport) return base;
+    const totalH = hh + rows.length * rh;
+    const targetW = 1.9 * totalH - leftW;               // lebar timeline utk rasio 1.9
+    return Math.min(9, Math.max(base, targetW / totalDays));
+  }, [forExport, compact, rows.length, rh, hh, leftW, totalDays]);
+  const wpx = px * 7;                                     // lebar 1 minggu (px)
   const W = totalDays * px;
   const xOf = (s) => days(range.min, D(s)) * px;
   const wOf = (s, f) => (days(D(s), D(f)) + 1) * px;
@@ -1363,16 +1375,10 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
   const [tip, setTip] = useState(null);
   const w = useWinW();
   const compact = w < 760;
-  const wpx = forExport ? 22 : (compact ? 22 : 26);
-  const px = wpx / 7;
-  /* jumlah baris (grup + induk) untuk menyetel tinggi baris ekspor secara
-     adaptif: makin sedikit baris, makin tinggi -> mengisi frame 4:3. */
-  const rowCount = useMemo(() => { let g = 0, t = 0; ACTS.forEach((a) => { const par = tasks.filter((x) => x.act === a.key && !x.parent); if (par.length) { g += 1; t += par.length; } }); return g + t; }, [tasks]);
-  const hs = forExport ? Math.min(1.9, Math.max(1, 20 / Math.max(8, rowCount))) : 1;
-  const rhG = forExport ? Math.round(46 * hs) : 40, rhT = forExport ? Math.round(40 * hs) : 34;
+  const rhG = forExport ? 44 : 40, rhT = forExport ? 38 : 34;
   const hMon = forExport ? 32 : 22, hWk = forExport ? 26 : 20, hh = hMon + hWk;
   const leftW = forExport ? 320 : (compact ? 180 : 264);
-  const gbH = forExport ? 28 : 16, tbH = forExport ? 24 : 13;   // tinggi bar (ekspor lebih besar)
+  const gbH = forExport ? 26 : 16, tbH = forExport ? 22 : 13;   // tinggi bar (ekspor lebih besar)
 
   /* susun baris: header kegiatan + pekerjaan induk (sub pekerjaan tidak ditampilkan) */
   const groups = useMemo(() => ACTS.map((a) => {
@@ -1397,7 +1403,16 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
     return { min: mondayOf(addDays(mn, -7)), max: addDays(mondayOf(addDays(mx, 7)), 6) };
   }, [groups, statusDate]);
 
-  const W = (days(range.min, range.max) + 1) * px;
+  const totalDays = days(range.min, range.max) + 1;
+  const px = useMemo(() => {
+    const base = (forExport ? 22 : (compact ? 22 : 26)) / 7;
+    if (!forExport) return base;
+    const totalH = hh + rows.reduce((a, r) => a + (r.kind === "grp" ? rhG : rhT), 0);
+    const targetW = 1.9 * totalH - leftW;
+    return Math.min(9, Math.max(base, targetW / totalDays));
+  }, [forExport, compact, rows.length, rhG, rhT, hh, leftW, totalDays]);
+  const wpx = px * 7;
+  const W = totalDays * px;
   const xOf = (d) => days(range.min, D(d)) * px;
   const wOf = (a, b) => (days(D(a), D(b)) + 1) * px;
   const weeks = useMemo(() => { const o = []; let c = new Date(range.min); while (c <= range.max) { o.push({ start: new Date(c), left: days(range.min, c) * px, wk: isoWeek(c), yr: isoWeekYear(c) }); c = addDays(c, 7); } return o; }, [range, px]);
@@ -3247,6 +3262,7 @@ function App() {
   const [pwModal, setPwModal] = useState(false);
   const [msSummary, setMsSummary] = useState(false);
   const [scZoom, setScZoom] = useState(null);   // kegiatan yang S-Curve-nya diperbesar
+  const [navOpen, setNavOpen] = useState({});   // bagian sidebar yang terlipat (default terbuka)
   const syncSt = useSyncState();
   const ganttRef = useRef(null);
   const scWrapRef = useRef(null);
@@ -3363,20 +3379,26 @@ function App() {
      Project Management : CRUD penuh semua fitur.
      Admin              : hanya update dokumen, bukti pembayaran, dan status Kanban. */
   const can = { manage: isPM, kanban: true, proof: true, docs: true };
-  const NAV = [
-    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
-    { sec: "KEGIATAN" },
-    ...acts.map((a) => ({ id: "act:" + a.key, label: a.label, icon: a.icon })),
-    ...(isPM ? [{ id: "acts", label: "Kelola Kegiatan", icon: "plus" }] : []),
-    { sec: "UMUM" },
-    { id: "biaya", label: "Biaya", icon: "wallet" },
-    { id: "punchlist", label: "Punchlist", icon: "clipboard", badge: punchOpen },
-    { id: "arsip", label: "Arsip Dokumen", icon: "folder" },
-    { sec: "PERSONAL" },
-    { id: "mytasks", label: "Tugas Saya", icon: "tasks", badge: myOpen },
-    { id: "logs", label: "Log Aktivitas", icon: "history" },
-    ...(isPM ? [{ id: "users", label: "Manajemen User", icon: "users" }] : []),
+  /* Menu berkelompok; tiap bagian (KEGIATAN/UMUM/PERSONAL) bisa dilipat
+     supaya sidebar tidak terlalu panjang ke bawah. */
+  const NAV_GROUPS = [
+    { items: [{ id: "dashboard", label: "Dashboard", icon: "dashboard" }] },
+    { sec: "KEGIATAN", items: [
+      ...acts.map((a) => ({ id: "act:" + a.key, label: a.label, icon: a.icon })),
+      ...(isPM ? [{ id: "acts", label: "Kelola Kegiatan", icon: "plus" }] : []),
+    ] },
+    { sec: "UMUM", items: [
+      { id: "biaya", label: "Biaya", icon: "wallet" },
+      { id: "punchlist", label: "Punchlist", icon: "clipboard", badge: punchOpen },
+      { id: "arsip", label: "Arsip Dokumen", icon: "folder" },
+    ] },
+    { sec: "PERSONAL", items: [
+      { id: "mytasks", label: "Tugas Saya", icon: "tasks", badge: myOpen },
+      { id: "logs", label: "Log Aktivitas", icon: "history" },
+      ...(isPM ? [{ id: "users", label: "Manajemen User", icon: "users" }] : []),
+    ] },
   ];
+  const NAV = NAV_GROUPS.flatMap((g) => g.items);
   const cur = NAV.find((n) => n.id === page) || NAV[0];
   const go = (id) => { setPage(id); if (isMobile) setSidebar(false); };
   const doLogout = () => { log("Keluar aplikasi", user.name); clearSession(); setReady(false); setUser(null); loggedRef.current = false; };
@@ -3404,9 +3426,20 @@ function App() {
         </div>
         {mini && <button onClick={() => setRail(false)} title="Perlebar menu" style={{ ...iconBtn, margin: "8px auto 0", border: `1px solid ${C.line}`, width: 34, height: 34 }}><Ic name="chevR" size={16} /></button>}
         <nav style={{ padding: mini ? 8 : 12, flex: 1 }}>
-          {NAV.map((n, i) => n.sec
-            ? (mini ? <div key={"s" + i} style={{ height: 1, background: C.line, margin: "10px 8px" }} /> : <div key={"s" + i} style={{ fontSize: 10, fontWeight: 800, color: "#9AAABC", letterSpacing: .6, padding: "12px 12px 5px" }}>{n.sec}</div>)
-            : item(n))}
+          {NAV_GROUPS.map((g, gi) => {
+            if (!g.sec) return g.items.map(item);
+            if (mini) return <div key={"s" + gi}><div style={{ height: 1, background: C.line, margin: "10px 8px" }} />{g.items.map(item)}</div>;
+            const open = navOpen[g.sec] !== false || g.items.some((it) => it.id === page);
+            return <div key={g.sec}>
+              <button onClick={() => setNavOpen((s) => ({ ...s, [g.sec]: !(s[g.sec] !== false) }))}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "12px 10px 5px", background: "none", border: "none", cursor: "pointer", fontSize: 10, fontWeight: 800, color: "#9AAABC", letterSpacing: .6, textAlign: "left" }}>
+                <span style={{ display: "grid", placeItems: "center", transition: ".15s", transform: open ? "none" : "rotate(-90deg)" }}><Ic name="chevD" size={12} /></span>
+                {g.sec}
+                {!open && g.items.some((it) => it.badge > 0) && <span style={{ marginLeft: "auto", width: 6, height: 6, borderRadius: 99, background: C.red }} />}
+              </button>
+              {open && g.items.map(item)}
+            </div>;
+          })}
         </nav>
         <div style={{ padding: mini ? 8 : 14, borderTop: `1px solid ${C.line}` }}>
           {!mini && <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
