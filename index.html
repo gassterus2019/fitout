@@ -379,6 +379,10 @@ async function hashPassword(password, saltHex) {
 }
 /* username dipakai sebagai identitas login; email tak lagi dibutuhkan */
 const uname = (u) => (u && u.username) ? String(u.username).toLowerCase() : ((u && u.email) ? String(u.email).toLowerCase().split("@")[0] : "");
+/* Identitas PIC pada tugas = u.id (selalu unik). Untuk data lama yang
+   sempat menyimpan username, cocokkan juga lewat username. */
+const findUser = (users, key) => { const k = String(key || "").toLowerCase(); return (users || []).find((u) => String(u.id).toLowerCase() === k || uname(u) === k); };
+const isAssigned = (users, ids, u) => { const set = (ids || []).map((x) => String(x).toLowerCase()); return set.indexOf(String(u.id).toLowerCase()) >= 0 || (uname(u) && set.indexOf(uname(u)) >= 0); };
 const SESSION_KEY = "pch-session";
 function saveSession(u) { try { localStorage.setItem(SESSION_KEY, JSON.stringify({ id: u.id, username: uname(u), ts: Date.now() })); } catch (e) {} }
 function readSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) { return null; } }
@@ -658,7 +662,7 @@ function SCurveChart({ data, today }) {
   const boxY = pad.t + 6;
   return (
     <div style={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" style={{ display: "block", width: "100%", height: "auto", maxHeight: 320 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" style={{ display: "block", width: "100%", height: "auto" }}>
         {[0, 25, 50, 75, 100].map((g) => (<g key={g}><line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={pad.l - 6} y={y(g) + 3} textAnchor="end" fontSize="9" fill={C.slate}>{g}%</text></g>))}
         {data.map((d, i) => (i % 3 === 0 ? <text key={i} x={x(i)} y={H - 7} textAnchor="middle" fontSize="8.5" fill={C.slate}>{d.label}</text> : null))}
         {ACTS.map((a) => <path key={a.key} d={path(a.label)} fill="none" stroke={a.color} strokeWidth="2.2" />)}
@@ -673,6 +677,154 @@ function SCurveChart({ data, today }) {
       </svg>
     </div>
   );
+}
+
+/* Ubah rangkaian titik {x,y} menjadi path SVG melengkung halus (Catmull-Rom).
+   clampLo/clampHi mencegah lengkungan melewati batas (mis. 0..100). */
+function smoothPath(pts, clampLo, clampHi) {
+  const p = pts.filter((q) => q && isFinite(q.x) && isFinite(q.y));
+  if (p.length < 2) return p.length ? `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}` : "";
+  const cl = (v) => (clampLo != null ? Math.max(clampLo, Math.min(clampHi, v)) : v);
+  let d = `M${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`;
+  for (let i = 0; i < p.length - 1; i++) {
+    const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p[i + 1];
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = cl(p1.y + (p2.y - p0.y) / 6);
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = cl(p2.y - (p3.y - p1.y) / 6);
+    d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+  }
+  return d;
+}
+
+/* ===== S-CURVE PER KEGIATAN ===== */
+function sCurveForAct(actKey, tasks) {
+  const ps = periods();
+  const leaves = tasks.filter((t) => t.act === actKey && !tasks.some((x) => x.parent === t.id && x.act === actKey));
+  if (!leaves.length) return ps.map((d) => ({ label: `${MON[d.getMonth()]} ${String(d.getDate()).padStart(2,"0")}`, plan: 0, actual: 0 }));
+  const today = todayNoon();
+  return ps.map((d) => {
+    let W = 0, planD = 0, actD = 0;
+    leaves.forEach((t) => {
+      if (t.status === STATUS.cancel) return;
+      const dur = days(D(t.start), D(t.finish)) + 1;
+      const pf = frac(t.start, t.finish, d);                 // porsi waktu terencana s/d d
+      const pnow = (Number(t.percent) || 0) / 100;           // realisasi progres saat ini
+      /* aktual hanya sampai HARI INI; bentuknya kumulatif -> berbentuk S.
+         Di masa depan (d > hari ini) aktual berhenti bertumbuh. */
+      const dEff = d > today ? today : d;
+      const afReal = frac(t.start, t.finish, dEff);          // porsi waktu s/d titik efektif
+      const af = Math.min(afReal, pnow);                     // dibatasi realisasi nyata
+      W += dur; planD += dur * pf; actD += dur * af;
+    });
+    const past = d <= today;
+    return { label: `${MON[d.getMonth()]} ${String(d.getDate()).padStart(2,"0")}`, plan: W ? +(planD / W * 100).toFixed(1) : 0, actual: (past && W) ? +(actD / W * 100).toFixed(1) : null };
+  });
+}
+function ActSCurveChart({ data, color, soft }) {
+  const W = 1000, H = 250, pad = { l: 40, r: 16, t: 14, b: 26 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, n = data.length;
+  const x = (i) => pad.l + (n <= 1 ? 0 : i * (iw / (n - 1)));
+  const y = (v) => pad.t + ih - (Math.max(0, Math.min(100, v)) / 100) * ih;
+  const ptsOf = (k) => data.map((d, i) => (d[k] == null ? null : { x: x(i), y: y(d[k]) })).filter(Boolean);
+  const planPts = ptsOf("plan"), actPts = ptsOf("actual");
+  const planPath = smoothPath(planPts, pad.t, pad.t + ih);
+  const actPath = smoothPath(actPts, pad.t, pad.t + ih);
+  const areaFrom = (path, pts) => pts.length ? `${path} L${pts[pts.length-1].x.toFixed(1)},${(pad.t+ih).toFixed(1)} L${pts[0].x.toFixed(1)},${(pad.t+ih).toFixed(1)} Z` : "";
+  const tdIdx = (() => { const ps = periods(), td = todayNoon(); if (td <= ps[0]) return 0; if (td >= ps[ps.length-1]) return ps.length-1; for (let i = 0; i < ps.length - 1; i++) if (td >= ps[i] && td <= ps[i+1]) return i + (td - ps[i]) / (ps[i+1] - ps[i]); return ps.length-1; })();
+  const tx = x(tdIdx);
+  const ci = Math.min(Math.round(tdIdx), n - 1);
+  const lastAct = actPts.length ? actPts[actPts.length - 1] : null;
+  return <div style={{ width: "100%", maxWidth: "100%", overflow: "hidden" }}>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" style={{ display: "block", width: "100%", height: "auto" }}>
+      {[0, 25, 50, 75, 100].map((g) => <g key={g}><line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={pad.l - 5} y={y(g) + 3} textAnchor="end" fontSize="8" fill={C.slate}>{g}%</text></g>)}
+      {data.map((d, i) => (i % 4 === 0 ? <text key={i} x={x(i)} y={H - 6} textAnchor="middle" fontSize="7.5" fill={C.slate}>{d.label}</text> : null))}
+      <path d={areaFrom(planPath, planPts)} fill={soft || "#EEF3F8"} opacity=".35" />
+      <path d={planPath} fill="none" stroke={C.slate} strokeWidth="1.5" strokeDasharray="4 3" />
+      <path d={areaFrom(actPath, actPts)} fill={color || C.violet} opacity=".12" />
+      <path d={actPath} fill="none" stroke={color || C.violet} strokeWidth="2.4" strokeLinecap="round" />
+      <line x1={tx} x2={tx} y1={pad.t} y2={pad.t+ih} stroke={C.amber} strokeWidth="1.2" strokeDasharray="3 2" />
+      {lastAct && <circle cx={lastAct.x} cy={lastAct.y} r="3.4" fill={color || C.violet} stroke="#fff" strokeWidth="1.2" />}
+      {data[ci] && <circle cx={tx} cy={y(data[ci].plan)} r="3" fill={C.slate} stroke="#fff" strokeWidth="1" />}
+    </svg>
+    <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 4, fontSize: 11, flexWrap: "wrap" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 0, borderTop: `2px dashed ${C.slate}` }} />Rencana</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 5, color: color || C.violet, fontWeight: 600 }}><span style={{ width: 14, height: 2.5, background: color || C.violet, borderRadius: 2 }} />Aktual (s/d hari ini)</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.amber, fontWeight: 600 }}><span style={{ width: 14, height: 2.5, background: C.amber, borderRadius: 2 }} />Hari ini</span>
+    </div>
+  </div>;
+}
+
+/* ===== GRAFIK PEMBAYARAN ===== */
+function paymentMonths(rab, fee, terms, trans, acosts) {
+  const bm = {};
+  const addTo = (label, ym, val) => { if (!bm[ym]) bm[ym] = {}; bm[ym][label] = (bm[ym][label] || 0) + val; };
+  terms.forEach((t) => { if (!t.date) return; const v = ((Number(t.percent) || 0) / 100) * (Number(fee) || 0); if (v) addTo(actOf("konsultan").label, t.date.slice(0, 7), v); });
+  const distrib = (items, label) => { items.forEach((r) => {
+    const total = (Number(r.qty) || 0) * (Number(r.rate) || 0);
+    if (!total || !r.start || !r.finish) return;
+    const ds = D(r.start), df = D(r.finish);
+    const totalDays = days(ds, df) + 1;               // total hari (inklusif)
+    let cur = new Date(ds.getFullYear(), ds.getMonth(), 1), acc = 0, parts = [];
+    while (cur <= df) {
+      const mEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+      const s = cur < ds ? ds : cur;
+      const e = mEnd > df ? df : mEnd;
+      const dcount = days(s, e) + 1;                   // hari di bulan ini (tanpa tumpang-tindih)
+      const ym = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`;
+      parts.push([ym, dcount]); acc += dcount;
+      cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+    }
+    // bagikan proporsional; jumlah potongan dijaga tepat = total (tanpa dobel/kurang)
+    let used = 0;
+    parts.forEach(([ym, dc], i) => { const v = i === parts.length - 1 ? total - used : Math.round(total * dc / (acc || totalDays)); used += v; addTo(label, ym, v); });
+  }); };
+  distrib(rab, actOf("kontraktor").label);
+  distrib(trans, actOf("transisi").label);
+  ACTS.filter((a) => BUILTIN_KEYS.indexOf(a.key) < 0).forEach((a) => distrib(acosts.filter((r) => r.act === a.key), a.label));
+  const months = Object.keys(bm).sort();
+  return months.map((ym) => {
+    const d = { month: ym, label: MON[Number(ym.slice(5, 7)) - 1] + " " + ym.slice(2, 4), total: 0 };
+    ACTS.forEach((a) => { d[a.label] = bm[ym][a.label] || 0; d.total += d[a.label]; });
+    return d;
+  });
+}
+function PaymentChart({ data, acts }) {
+  const [focus, setFocus] = useState(null);
+  const W = 900, H = 280, pad = { l: 68, r: 16, t: 16, b: 36 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, n = data.length;
+  if (!n) return <div style={{ fontSize: 12.5, color: C.slate, padding: 20, textAlign: "center" }}>Belum ada data pembayaran.</div>;
+  const maxV = Math.max(...data.map((d) => focus ? (d[focus] || 0) : d.total), 1);
+  const niceMax = (() => { const p = Math.pow(10, Math.floor(Math.log10(maxV))); const c = [1,2,2.5,5,10]; for (const m of c) if (m * p >= maxV) return m * p; return maxV; })();
+  const x = (i) => pad.l + (n <= 1 ? iw / 2 : i * (iw / (n - 1)));
+  const y = (v) => pad.t + ih - (v / niceMax) * ih;
+  const series = focus ? [[focus, acts.find((a) => a.label === focus)?.color || C.violet]] : acts.map((a) => [a.label, a.color]);
+  const ptsOf = (k) => data.map((d, i) => ({ x: x(i), y: y(d[k] || 0) }));
+  const pathOf = (k) => smoothPath(ptsOf(k), pad.t, pad.t + ih);
+  const areaOf = (k) => { const path = pathOf(k); return path ? `${path} L${x(n-1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z` : ""; };
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map((f) => f * niceMax);
+  return <div>
+    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+      <button onClick={() => setFocus(null)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${!focus ? C.violet : C.line}`, background: !focus ? C.violetSoft : "#fff", color: !focus ? C.violet : C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Semua Kegiatan</button>
+      {acts.map((a) => <button key={a.key} onClick={() => setFocus(focus === a.label ? null : a.label)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${focus === a.label ? a.color : C.line}`, background: focus === a.label ? (a.soft || "#EEF") : "#fff", color: focus === a.label ? a.color : C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 99, background: a.color, flexShrink: 0 }} />{a.label}</button>)}
+    </div>
+    <div style={{ width: "100%", overflow: "hidden" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" style={{ display: "block", width: "100%", height: "auto" }}>
+        {gridLines.map((g, i) => <g key={i}><line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={pad.l - 6} y={y(g) + 3} textAnchor="end" fontSize="8" fill={C.slate}>{rpShort(g)}</text></g>)}
+        {data.map((d, i) => <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="8" fill={C.slate}>{d.label}</text>)}
+        {focus ? <><path d={areaOf(focus)} fill={(acts.find((a) => a.label === focus)?.soft || "#EEF")} opacity=".6" /><path d={pathOf(focus)} fill="none" stroke={acts.find((a) => a.label === focus)?.color || C.violet} strokeWidth="2.5" /></> : <>
+          {acts.map((a) => <path key={a.key} d={areaOf(a.label)} fill={a.soft || "#EEF"} opacity=".3" />)}
+          {acts.map((a) => <path key={a.key + "l"} d={pathOf(a.label)} fill="none" stroke={a.color} strokeWidth="2" />)}
+        </>}
+        {!focus && <><path d={areaOf("total")} fill="#E8ECF0" opacity=".25" /><path d={pathOf("total")} fill="none" stroke={C.ink} strokeWidth="1.8" strokeDasharray="5 4" /></>}
+        {data.map((d, i) => { const v = focus ? (d[focus] || 0) : d.total; return v > 0 ? <g key={i}>
+          <circle cx={x(i)} cy={y(v)} r="3.5" fill={focus ? (acts.find((a) => a.label === focus)?.color || C.violet) : C.ink} stroke="#fff" strokeWidth="1.2" />
+          <text x={x(i)} y={y(v) - 7} textAnchor="middle" fontSize="7.5" fontWeight="700" fill={C.ink}>{rpShort(v)}</text>
+        </g> : null; })}
+      </svg>
+    </div>
+    <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 6, fontSize: 11, flexWrap: "wrap" }}>
+      {(focus ? [[focus, acts.find((a) => a.label === focus)?.color || C.violet]] : [...acts.map((a) => [a.label, a.color]), ["Total", C.ink]]).map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 5, color: C.slate, fontWeight: 600 }}><span style={{ width: 12, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}
+    </div>
+  </div>;
 }
 
 /* ===== UI PRIMITIVES ===== */
@@ -910,12 +1062,24 @@ function recalcSchedule(tasks) {
 }
 /* prediksi tanggal selesai proyek (setelah jadwal ulang, tanpa mengubah data) */
 function predictFinish(tasks, act) {
+  const info = predictFinishInfo(tasks, act);
+  return info ? info.date : null;
+}
+/* prediksi rinci: tanggal + pekerjaan penentu + alasan (transparan) */
+function predictFinishInfo(tasks, act) {
   const scope = tasks.filter((t) => (!act || t.act === act) && t.status !== STATUS.cancel);
   if (!scope.length) return null;
   const r = recalcSchedule(scope);
-  let mx = null;
-  r.tasks.forEach((t) => { const f = D(effFinish(t)); if (!mx || f > mx) mx = f; });
-  return mx ? iso(mx) : null;
+  const orig = new Map(scope.map((t) => [t.id, t]));
+  let mx = null, driver = null;
+  r.tasks.forEach((t) => { const f = D(effFinish(t)); if (!mx || f > mx) { mx = f; driver = t; } });
+  if (!driver) return null;
+  const o = orig.get(driver.id);
+  let reason = "sesuai jadwal rencana";
+  if (driver.actualFinish) reason = "penyelesaian aktual " + fmtDate(driver.actualFinish);
+  else if (o && driver.finish !== o.finish) reason = "tergeser predecessor (rencana " + fmtDate(o.finish) + ")";
+  else if ((driver.pred || []).length) reason = "menunggu " + (driver.pred || []).length + " predecessor";
+  return { date: iso(mx), driver, reason, actLabel: actOf(driver.act).label, crossAct: !!(act && driver.act !== act) };
 }
 
 /* ===== GANTT (sumbu: Bulan + Minggu ke-, garis hari ini, tooltip tanggal) ===== */
@@ -1254,15 +1418,17 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
   const hasKids = task ? tasks.some((t) => t.parent === task.id) : false;
   const [f, setF] = useState(() => {
     const base = task || { name: "", act, parent: null, start: PROJECT.statusDate, finish: PROJECT.statusDate, percent: 0, status: STATUS.todo, note: "", assignees: [], prio: "Sedang", actualFinish: "", pred: [], todos: [] };
-    const todos = (base.todos && base.todos.length) ? base.todos : (hasKids ? [] : [{ id: uid(), text: "", done: false }, { id: uid(), text: "", done: false }, { id: uid(), text: "", done: false }]);
+    const isSub0 = !!base.parent && !hasKids;
+    const todos = isSub0 ? ((base.todos && base.todos.length) ? base.todos : [{ id: uid(), text: "", done: false }]) : [];
     return { ...base, todos, pred: base.pred || [], actualFinish: base.actualFinish || "" };
   });
+  const showTodo = !!f.parent && !hasKids; /* to-do hanya untuk sub pekerjaan */
   const [succ, setSucc] = useState(task ? succOf(tasks, task.id).map((t) => t.id) : []);
   const [err, setErr] = useState("");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const setTodo = (id, patch) => setF((s) => ({ ...s, todos: s.todos.map((t) => t.id === id ? { ...t, ...patch } : t) }));
   const addTodo = () => setF((s) => ({ ...s, todos: [...s.todos, { id: uid(), text: "", done: false }] }));
-  const delTodo = (id) => setF((s) => s.todos.length <= 3 ? s : ({ ...s, todos: s.todos.filter((t) => t.id !== id) }));
+  const delTodo = (id) => setF((s) => s.todos.length <= 1 ? s : ({ ...s, todos: s.todos.filter((t) => t.id !== id) }));
   const share = f.todos.length ? 100 / f.todos.length : 0;
   const doneN = f.todos.filter((t) => t.done).length;
   const autoPct = f.todos.length ? Math.round(doneN / f.todos.length * 100) : (Number(f.percent) || 0);
@@ -1273,13 +1439,13 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
     if (!f.name.trim()) { setErr("Nama pekerjaan wajib diisi."); return; }
     if (!f.start || !f.finish) { setErr("Tanggal mulai dan selesai wajib diisi."); return; }
     if (D(f.finish) < D(f.start)) { setErr("Tanggal selesai tidak boleh mendahului tanggal mulai."); return; }
-    if (!hasKids) {
-      if (f.todos.length < 3) { setErr("Minimal 3 to-do list wajib diisi."); return; }
+    if (showTodo) {
+      if (f.todos.length < 1) { setErr("Minimal 1 to-do list wajib diisi."); return; }
       if (f.todos.some((t) => !t.text.trim())) { setErr("Semua to-do list wajib diisi teksnya (atau hapus baris yang kosong)."); return; }
     }
     if (f.actualFinish && D(f.actualFinish) < D(f.start)) { setErr("Penyelesaian aktual tidak boleh mendahului tanggal mulai."); return; }
-    const pct = hasKids ? Number(f.percent) || 0 : autoPct;
-    onSave({ ...f, act, percent: pct, status: f.status === STATUS.cancel ? STATUS.cancel : stOf(pct), todos: f.todos.map((t) => ({ ...t, text: t.text.trim() })), _succ: succ });
+    const pct = showTodo ? autoPct : (hasKids ? Number(f.percent) || 0 : Number(f.percent) || 0);
+    onSave({ ...f, act, percent: pct, status: f.status === STATUS.cancel ? STATUS.cancel : stOf(pct), todos: showTodo ? f.todos.map((t) => ({ ...t, text: t.text.trim() })) : [], _succ: succ });
   };
   const exclude = [task ? task.id : "x", ...f.pred];
   return <Modal title={task ? "Edit Pekerjaan" : "Tambah Pekerjaan"} onClose={onClose} width={620}>
@@ -1307,7 +1473,7 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
     </div>
 
     {/* ---- TO-DO LIST penentu persentase ---- */}
-    {!hasKids && <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, background: "#FBFCFE" }}>
+    {showTodo && <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12, background: "#FBFCFE" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
         <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink }}>To-do list penentu progres <span style={{ color: C.red }}>*</span></div>
         <div style={{ fontSize: 11.5, color: C.slate }}>{f.todos.length} item · masing-masing bernilai <b style={{ color: C.violet }}>{share.toFixed(1)}%</b></div>
@@ -1320,8 +1486,8 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
           </button>
           <Input value={t.text} onChange={(e) => setTodo(t.id, { text: e.target.value })} placeholder={`Langkah ${i + 1}`} style={{ flex: 1, padding: "7px 10px", fontSize: 12.5, textDecoration: t.done ? "line-through" : "none", color: t.done ? C.slate : C.ink }} />
           <span style={{ fontSize: 11, fontWeight: 700, color: t.done ? C.green : "#A9B7C6", width: 44, textAlign: "right", flexShrink: 0 }}>{t.done ? "+" + share.toFixed(1) + "%" : share.toFixed(1) + "%"}</span>
-          <button onClick={() => delTodo(t.id)} disabled={f.todos.length <= 3} title={f.todos.length <= 3 ? "3 to-do pertama wajib ada" : "Hapus to-do"}
-            style={{ ...iconBtn, color: f.todos.length <= 3 ? "#D3DCE6" : C.red, cursor: f.todos.length <= 3 ? "not-allowed" : "pointer", flexShrink: 0 }}><Ic name="trash" size={13} /></button>
+          <button onClick={() => delTodo(t.id)} disabled={f.todos.length <= 1} title={f.todos.length <= 1 ? "Minimal 1 to-do wajib ada" : "Hapus to-do"}
+            style={{ ...iconBtn, color: f.todos.length <= 1 ? "#D3DCE6" : C.red, cursor: f.todos.length <= 1 ? "not-allowed" : "pointer", flexShrink: 0 }}><Ic name="trash" size={13} /></button>
         </div>)}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
@@ -1332,6 +1498,15 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
       <div style={{ fontSize: 11, color: C.slate, marginTop: 6 }}>Progres pekerjaan dihitung otomatis dari to-do yang tercentang, jadi tidak lagi menebak angka persen.</div>
     </div>}
     {hasKids && <div style={{ marginTop: 14 }}><Field label="Progres (otomatis dari sub pekerjaan)"><Input value={f.percent + "%"} disabled /></Field></div>}
+    {!f.parent && !hasKids && <div style={{ marginTop: 14 }}>
+      <Field label="Progres manual">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input type="range" min="0" max="100" value={Number(f.percent) || 0} onChange={(e) => set("percent", Number(e.target.value))} style={{ flex: 1 }} />
+          <span style={{ fontSize: 13, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums", width: 42, textAlign: "right" }}>{Number(f.percent) || 0}%</span>
+        </div>
+      </Field>
+      <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>Pekerjaan utama tanpa sub pekerjaan — progres diatur manual. Tambahkan sub pekerjaan agar progres dihitung otomatis dari to-do list.</div>
+    </div>}
 
     {/* ---- KETERGANTUNGAN ---- */}
     <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
@@ -1352,8 +1527,8 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>PIC pekerjaan ({(f.assignees || []).length} orang) — otomatis muncul di menu “Tugas Saya” masing-masing</div>
       <div style={{ maxHeight: 168, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 11, padding: 6 }}>
-        {(users || []).filter((u) => u.active && !u.pending).map((u) => { const un = uname(u); const on = (f.assignees || []).indexOf(un) >= 0; return (
-          <button key={u.id} onClick={() => set("assignees", on ? f.assignees.filter((x) => x !== un) : [...(f.assignees || []), un])}
+        {(users || []).filter((u) => u.active && !u.pending).map((u) => { const on = isAssigned(users, f.assignees, u); return (
+          <button key={u.id} onClick={() => set("assignees", on ? (f.assignees || []).filter((x) => x !== u.id && x !== uname(u)) : [...(f.assignees || []), u.id])}
             style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "7px 9px", borderRadius: 9, border: "none", background: on ? C.violetSoft : "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}>
             <span style={{ width: 18, height: 18, borderRadius: 6, border: `2px solid ${on ? C.violet : "#C7D2DE"}`, background: on ? C.violet : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>{on && <Ic name="check" size={10} />}</span>
             <span style={{ width: 25, height: 25, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</span>
@@ -1375,7 +1550,7 @@ function Avatars({ emails, users, size = 22 }) {
   if (!list.length) return <span style={{ fontSize: 10.5, color: C.slate }}>belum ditugaskan</span>;
   return <div style={{ display: "flex", alignItems: "center" }}>
     {list.map((em, i) => {
-      const u = users.find((x) => uname(x) === (em || "").toLowerCase());
+      const u = findUser(users, em);
       const nm = u ? u.name : em;
       const pm = u && u.role === ROLE.pm;
       return <span key={em} title={nm + (u ? ` · ${u.role}` : "")} style={{ width: size, height: size, borderRadius: 99, background: pm ? C.blueSoft : C.greenSoft, color: pm ? C.blue : C.green, border: "2px solid #fff", marginLeft: i ? -7 : 0, display: "grid", placeItems: "center", fontSize: size * .45, fontWeight: 800, flexShrink: 0 }}>{(nm || "?")[0].toUpperCase()}</span>;
@@ -1656,6 +1831,7 @@ function Costs({ rab, setRab, trans, setTrans, acosts, setAcosts, fee, setFee, t
   const rowsOf = (k) => acosts.filter((r) => r.act === k);
   const setRowsOf = (k) => (fn) => setAcosts((s) => { const mine = s.filter((r) => r.act === k); const next = (typeof fn === "function" ? fn(mine) : fn).map((r) => ({ ...r, act: k })); return [...s.filter((r) => r.act !== k), ...next]; });
   const grand = cT + fee + trT + sumCost(acosts);
+  const payData = useMemo(() => paymentMonths(rab, fee, terms, trans, acosts), [rab, fee, terms, trans, acosts]);
   return <div className="g1">
     <div className="g4">
       <Stat label="Nilai Proyek" value={rpShort(grand)} sub={`${ACTS.length} kegiatan`} icon="dollar" color={C.ink} />
@@ -1665,6 +1841,12 @@ function Costs({ rab, setRab, trans, setTrans, acosts, setAcosts, fee, setFee, t
         return <Stat key={a.key} label={"Biaya " + a.label} value={rpShort(v)} sub={n} icon={a.icon} color={a.color} />;
       })}
     </div>
+
+    <Card>
+      <CardHead icon="dollar" color={C.green} title="Grafik Pembayaran per Kegiatan" right={<span style={{ fontSize: 12, color: C.slate }}>klik kegiatan untuk memfilter</span>} />
+      <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Membandingkan nominal pembayaran (sumbu Y) dengan waktu tagihan dibayar per bulan (sumbu X). Pilih “Semua Kegiatan” untuk melihat perbandingan lengkap beserta totalnya, atau satu kegiatan untuk grafiknya sendiri.</div>
+      <PaymentChart data={payData} acts={ACTS} />
+    </Card>
 
     <CostTable title={"Biaya " + actOf("kontraktor").label + " (RAB)"} icon={actOf("kontraktor").icon} color={actOf("kontraktor").color} rows={rab} setRows={setRab} log={log} can={can} tag={actOf("kontraktor").label} addLabel="Tambah baris RAB" />
 
@@ -2081,6 +2263,7 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
   const [over, setOver] = useState(null);
   const [drag, setDrag] = useState(null);
   const me = uname(user);
+  const meUser = findUser(users, user.id) || findUser(users, me) || user;
   const canEdit = isPM;                            // Admin: hanya tambah + ubah status
   /* PENUGASAN PIC: pekerjaan dari Gantt/Kanban tempat user menjadi PIC
      ikut tampil di sini. Statusnya dua arah — diubah di sini berubah juga
@@ -2088,17 +2271,17 @@ function MyTasks({ mytasks, setMytasks, tasks, setTasks, users, user, isPM, log 
   const assigned = useMemo(() => {
     const leaves = tasks.filter((t) => !tasks.some((x) => x.parent === t.id));
     return leaves
-      .filter((t) => (t.assignees || []).some((un) => (isPM && scope === "all") ? true : (un || "").toLowerCase() === me))
+      .filter((t) => (isPM && scope === "all") ? (t.assignees || []).length > 0 : (meUser && isAssigned(users, t.assignees, meUser)))
       .map((t) => ({
-        id: "w:" + t.id, work: true, workId: t.id, text: t.name, owner: (t.assignees || [])[0] || me,
+        id: "w:" + t.id, work: true, workId: t.id, text: t.name, owner: (t.assignees || [])[0] || (meUser ? meUser.id : me),
         assignees: t.assignees || [], status: W2M[t.status] || MST.todo, prio: t.prio || "Sedang",
         due: t.finish, note: t.note || "", act: t.act, percent: t.percent,
         todos: t.todos || [], actualFinish: t.actualFinish || "",
       }));
   }, [tasks, scope, me, isPM]);
-  const personal = (isPM && scope === "all") ? mytasks : mytasks.filter((t) => (t.owner || "").toLowerCase() === me);
+  const personal = (isPM && scope === "all") ? mytasks : mytasks.filter((t) => { const o = (t.owner || "").toLowerCase(); return o === me || o === String(user.id).toLowerCase() || (meUser && o === String(meUser.id).toLowerCase()); });
   const scoped = [...assigned, ...personal];
-  const userOf = (em) => users.find((u) => uname(u) === (em || "").toLowerCase());
+  const userOf = (em) => findUser(users, em);
   const stOfT = (t) => t.status || MST.todo;
 
   const upd = (id, patch) => setMytasks((s) => s.map((t) => t.id === id ? { ...t, ...patch } : t));
@@ -2804,6 +2987,7 @@ function Stat({ label, value, sub, color = C.ink, icon }) {
 /* ===== HALAMAN KEGIATAN (Gantt + Kanban) ===== */
 function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporting }) {
   const [tab, setTab] = useState("gantt");
+  const actSC = useMemo(() => sCurveForAct(act, tasks), [act, tasks]);
   const [modal, setModal] = useState(null);
   const [view, setView] = useState(null);
   const [note, setNote] = useState(null);
@@ -2861,7 +3045,8 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
   const counts = {}; KCOLS.forEach((k) => (counts[k] = 0));
   leaves.forEach((t) => (counts[t.status] = (counts[t.status] || 0) + 1));
   const pct = progressOf(tasks, act);
-  const predFin = useMemo(() => predictFinish(tasks, act), [tasks, act]);
+  const predInfo = useMemo(() => predictFinishInfo(tasks, act), [tasks, act]);
+  const predFin = predInfo ? predInfo.date : null;
   const planFin = useMemo(() => { let mx = null; leaves.forEach((t) => { if (t.status === STATUS.cancel) return; const f = D(t.finish); if (!mx || f > mx) mx = f; }); return mx ? iso(mx) : null; }, [tasks, act]);
   const lateList = leaves.filter(isLate);
   const lateN = lateList.length;
@@ -2869,7 +3054,7 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
   return <div className="g1">
     <div className="g4">
       <Stat label="Progres Kegiatan" value={pct + "%"} sub={`${list.filter((t) => !t.parent).length} pekerjaan · ${leaves.length} item`} icon="trending" color={A2.color} />
-      <Stat label="Prediksi Selesai" value={predFin ? fmtDate(predFin) : "-"} sub={planFin && predFin && predFin !== planFin ? `mundur ${days(D(planFin), D(predFin))} hari dari rencana` : "sesuai rencana"} icon="calendar" color={planFin && predFin && D(predFin) > D(planFin) ? C.red : C.green} />
+      <Stat label="Prediksi Selesai" value={predFin ? fmtDate(predFin) : "-"} sub={predInfo ? ("penentu: " + (predInfo.driver.name.length > 20 ? predInfo.driver.name.slice(0, 19) + "…" : predInfo.driver.name)) : "-"} icon="calendar" color={planFin && predFin && D(predFin) > D(planFin) ? C.red : C.green} />
       <Stat label="Terlambat" value={lateN} sub={lateN ? "perlu dijadwalkan ulang" : "semua sesuai jadwal"} icon="alert" color={lateN ? C.red : C.green} />
       <Stat label={STATUS.done} value={counts[STATUS.done]} sub={`${counts[STATUS.doing]} berjalan · ${counts[STATUS.cancel]} batal`} icon="check" color={C.green} />
     </div>
@@ -2888,6 +3073,9 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
             {lateList.slice(0, 3).map((t) => { const li = lateInfo(t); return `${t.name} (${li.hari} hari${li.aktual ? ", aktual" : ""})`; }).join(" · ")}
             {lateN > 3 ? ` · +${lateN - 3} lainnya` : ""}
           </div>
+          {predInfo && predFin && planFin && D(predFin) > D(planFin) && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 5 }}>
+            Prediksi selesai mundur ke <b style={{ color: C.red }}>{fmtDate(predFin)}</b> (rencana {fmtDate(planFin)}) karena pekerjaan <b>“{predInfo.driver.name}”</b> {predInfo.reason}.
+          </div>}
           {can.manage && <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
             <Btn size="sm" kind="ghost" onClick={() => setView(lateList[0])}>Lihat yang terlambat</Btn>
             <Btn size="sm" kind="ghost" onClick={reschedule}><Ic name="history" size={13} /> Jadwalkan Ulang</Btn>
@@ -2912,6 +3100,16 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
       {tab === "kanban" && <Kanban tasks={tasks} act={act} users={users} onMove={moveKanban} onView={setView} onNote={setNote} onAdd={() => setModal({ task: null })} canMove={can.kanban} canNote={can.manage} />}
       {tab === "week" && <WeekCalendar tasks={tasks} act={act} users={users} onView={setView} />}
     </Card>
+
+    <Card>
+      <CardHead icon="trending" color={A2.color} title={"S-Curve — " + A2.label} right={<div style={{ display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 2.5, background: C.slate, borderRadius: 2 }} />Rencana</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 5, color: A2.color, fontWeight: 600 }}><span style={{ width: 14, height: 2.5, background: A2.color, borderRadius: 2 }} />Aktual</span>
+      </div>} />
+      <ActSCurveChart data={actSC} color={A2.color} soft={A2.soft} />
+      <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8 }}>Kurva rencana vs aktual khusus kegiatan {A2.label}. Garis putus-putus = target kumulatif; garis penuh = realisasi progres pekerjaan.</div>
+    </Card>
+
     {modal && can.manage && <TaskModal task={modal.task && modal.task.id ? modal.task : (modal.task || null)} act={act} tasks={tasks} users={users} onClose={() => setModal(null)} onSave={saveTask} />}
     {view && <TaskViewModal task={view} tasks={tasks} users={users} onClose={() => setView(null)} />}
     {note && can.manage && <TaskNoteModal task={note} users={users} onSave={saveNote} onClose={() => setNote(null)} />}
@@ -2948,6 +3146,7 @@ function App() {
   const w = useWinW();
   const isMobile = w < 900;
   const [sidebar, setSidebar] = useState(true);
+  const [rail, setRail] = useState(false);   // desktop: sidebar menyempit jadi ikon saja
   useEffect(() => { setSidebar(!isMobile); }, [isMobile]);
 
   const userRef = useRef(null); userRef.current = user;
@@ -2961,6 +3160,7 @@ function App() {
   const cTotal = sumCost(rab), trTotal = sumCost(trans), aTotal = sumCost(acosts);
   const proj = cTotal + fee + trTotal + aTotal;
   const overall = useMemo(() => progressOf(tasks, null), [tasks]);
+  const payData = useMemo(() => paymentMonths(rab, fee, terms, trans, acosts), [rab, fee, terms, trans, acosts, acts]);
   const nextPay = terms.filter((t) => D(t.date) >= D(PROJECT.statusDate)).sort((a, b) => D(a.date) - D(b.date))[0];
   const punchOpen = punch.filter((p) => p.status !== PST.done).length;
   const myOpen = user ? mytasks.filter((t) => (t.owner || "").toLowerCase() === uname(user) && !t.done).length : 0;
@@ -3102,34 +3302,52 @@ function App() {
 
   return <div style={{ fontFamily: "Inter, system-ui, sans-serif", color: C.text, background: C.bg, minHeight: "100vh", display: "flex" }}>
     {sidebar && isMobile && <div onClick={() => setSidebar(false)} style={{ position: "fixed", inset: 0, background: "rgba(19,41,61,.45)", zIndex: 60 }} />}
-    {sidebar && <aside style={{ width: 236, background: "#fff", borderRight: `1px solid ${C.line}`, flexShrink: 0, display: "flex", flexDirection: "column", position: isMobile ? "fixed" : "sticky", left: 0, top: 0, height: "100vh", zIndex: 61, overflowY: "auto" }}>
-      <div style={{ padding: 18, display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${C.line}` }}>
-        <Logo size={36} radius={10} />
-        <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 14.5, color: C.ink }}>Selamat Bekerja!</div></div>
-        {isMobile && <button onClick={() => setSidebar(false)} style={iconBtn}><Ic name="x" size={18} /></button>}
-      </div>
-      <nav style={{ padding: 12, flex: 1 }}>
-        {NAV.map((n, i) => n.sec
-          ? <div key={"s" + i} style={{ fontSize: 10, fontWeight: 800, color: "#9AAABC", letterSpacing: .6, padding: "12px 12px 5px" }}>{n.sec}</div>
-          : <button key={n.id} onClick={() => go(n.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", marginBottom: 3, borderRadius: 10, border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 600, textAlign: "left", color: page === n.id ? C.violet : C.slate, background: page === n.id ? C.violetSoft : "transparent" }}>
-            <Ic name={n.icon} size={18} />{n.label}
-            {n.badge > 0 && <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, color: "#fff", background: C.red, borderRadius: 99, padding: "1px 7px" }}>{n.badge}</span>}
-          </button>)}
-      </nav>
-      <div style={{ padding: 14, borderTop: `1px solid ${C.line}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 99, background: isPM ? C.blueSoft : C.greenSoft, color: isPM ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(user.name || "?")[0].toUpperCase()}</div>
-          <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div><div style={{ fontSize: 10.5, color: C.slate }}>{uname(user)} · {user.role}</div></div>
+    {sidebar && (() => {
+      const mini = rail && !isMobile;             // rail ikon hanya di desktop
+      const W = mini ? 68 : 236;
+      const item = (n) => <button key={n.id} onClick={() => go(n.id)} title={mini ? n.label : undefined}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: mini ? "10px 0" : "10px 12px", justifyContent: mini ? "center" : "flex-start", marginBottom: 3, borderRadius: 10, border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 600, textAlign: "left", color: page === n.id ? C.violet : C.slate, background: page === n.id ? C.violetSoft : "transparent", position: "relative" }}>
+        <span style={{ position: "relative", display: "grid", placeItems: "center", flexShrink: 0 }}>
+          <Ic name={n.icon} size={18} />
+          {mini && n.badge > 0 && <span style={{ position: "absolute", top: -6, right: -8, fontSize: 9, fontWeight: 700, color: "#fff", background: C.red, borderRadius: 99, padding: "0 4px", minWidth: 14, textAlign: "center" }}>{n.badge}</span>}
+        </span>
+        {!mini && <>{n.label}{n.badge > 0 && <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, color: "#fff", background: C.red, borderRadius: 99, padding: "1px 7px" }}>{n.badge}</span>}</>}
+      </button>;
+      return <aside style={{ width: W, background: "#fff", borderRight: `1px solid ${C.line}`, flexShrink: 0, display: "flex", flexDirection: "column", position: isMobile ? "fixed" : "sticky", left: 0, top: 0, height: "100vh", zIndex: 61, overflowY: "auto", overflowX: "hidden", transition: "width .18s ease" }}>
+        <div style={{ padding: mini ? "16px 0" : 18, display: "flex", alignItems: "center", justifyContent: mini ? "center" : "flex-start", gap: 10, borderBottom: `1px solid ${C.line}` }}>
+          <Logo size={mini ? 32 : 36} radius={10} />
+          {!mini && <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 800, fontSize: 14.5, color: C.ink }}>Selamat Bekerja!</div></div>}
+          {!mini && !isMobile && <button onClick={() => setRail(true)} title="Ciutkan menu" style={iconBtn}><Ic name="chevL" size={18} /></button>}
+          {isMobile && <button onClick={() => setSidebar(false)} style={iconBtn}><Ic name="x" size={18} /></button>}
         </div>
-        {LIVE && <button onClick={() => setPwModal(true)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600, marginBottom: 7 }}><Ic name="key" size={14} /> Ubah Password</button>}
-        <button onClick={doLogout} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}><Ic name="logout" size={14} /> Keluar</button>
-      </div>
-    </aside>}
+        {mini && <button onClick={() => setRail(false)} title="Perlebar menu" style={{ ...iconBtn, margin: "8px auto 0", border: `1px solid ${C.line}`, width: 34, height: 34 }}><Ic name="chevR" size={16} /></button>}
+        <nav style={{ padding: mini ? 8 : 12, flex: 1 }}>
+          {NAV.map((n, i) => n.sec
+            ? (mini ? <div key={"s" + i} style={{ height: 1, background: C.line, margin: "10px 8px" }} /> : <div key={"s" + i} style={{ fontSize: 10, fontWeight: 800, color: "#9AAABC", letterSpacing: .6, padding: "12px 12px 5px" }}>{n.sec}</div>)
+            : item(n))}
+        </nav>
+        <div style={{ padding: mini ? 8 : 14, borderTop: `1px solid ${C.line}` }}>
+          {!mini && <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 99, background: isPM ? C.blueSoft : C.greenSoft, color: isPM ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>{(user.name || "?")[0].toUpperCase()}</div>
+            <div style={{ minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div><div style={{ fontSize: 10.5, color: C.slate }}>{uname(user)} · {user.role}</div></div>
+          </div>}
+          {mini
+            ? <div style={{ display: "grid", gap: 6 }}>
+                {LIVE && <button onClick={() => setPwModal(true)} title="Ubah Password" style={{ ...iconBtn, border: `1px solid ${C.line}`, width: "100%", height: 34 }}><Ic name="key" size={15} /></button>}
+                <button onClick={doLogout} title="Keluar" style={{ ...iconBtn, border: `1px solid ${C.line}`, width: "100%", height: 34, color: C.red }}><Ic name="logout" size={15} /></button>
+              </div>
+            : <>
+                {LIVE && <button onClick={() => setPwModal(true)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600, marginBottom: 7 }}><Ic name="key" size={14} /> Ubah Password</button>}
+                <button onClick={doLogout} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: 8, borderRadius: 9, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}><Ic name="logout" size={14} /> Keluar</button>
+              </>}
+        </div>
+      </aside>;
+    })()}
 
     <main style={{ flex: 1, minWidth: 0, width: "100%" }}>
       <header style={{ background: "#fff", borderBottom: `1px solid ${C.line}`, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 20, gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-          <button onClick={() => setSidebar((s) => !s)} title="Menu" style={{ ...iconBtn, border: `1px solid ${C.line}`, width: 36, height: 36, color: C.ink, flexShrink: 0 }}><Ic name="menu" size={18} /></button>
+          <button onClick={() => { if (isMobile) setSidebar((v) => !v); else if (!sidebar) setSidebar(true); else setRail((v) => !v); }} title="Menu" style={{ ...iconBtn, border: `1px solid ${C.line}`, width: 36, height: 36, color: C.ink, flexShrink: 0 }}><Ic name="menu" size={18} /></button>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 16.5, fontWeight: 800, letterSpacing: -.3, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cur.label}</div>
             <div style={{ fontSize: 12, color: C.slate, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{PROJECT.name}</div>
@@ -3208,6 +3426,26 @@ function App() {
           <Card>
             <CardHead icon="trending" title="S-Curve" right={<div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div style={{ display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>{seriesList().map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 6, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}</div><Btn kind="ghost" size="sm" onClick={exportSCurvePNG}><Ic name="download" size={15} /> Unduh PNG</Btn></div>} />
             <div ref={scWrapRef} style={{ minWidth: 0 }}><SCurveChart data={sc} today={scToday} /></div>
+          </Card>
+
+          <Card>
+            <CardHead icon="dollar" color={C.green} title="Grafik Pembayaran per Kegiatan" right={<span style={{ fontSize: 12, color: C.slate }}>klik kegiatan untuk memfilter</span>} />
+            <div style={{ fontSize: 12, color: C.slate, marginBottom: 10 }}>Nominal pembayaran per bulan (sumbu Y) terhadap waktu tagihan dibayar (sumbu X). Pilih satu kegiatan untuk melihat grafiknya sendiri.</div>
+            <PaymentChart data={payData} acts={acts} />
+          </Card>
+
+          <Card>
+            <CardHead icon="trending" title="S-Curve per Kegiatan" right={<span style={{ fontSize: 12, color: C.slate }}>rencana vs aktual, masing-masing kegiatan</span>} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: 16 }}>
+              {acts.map((a) => <div key={a.key} style={{ border: `1px solid ${C.line}`, borderRadius: 13, padding: 12, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ width: 26, height: 26, borderRadius: 8, background: a.soft, color: a.color, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={a.icon} size={14} /></span>
+                  <span style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.label}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 800, color: a.color }}>{progressOf(tasks, a.key)}%</span>
+                </div>
+                <ActSCurveChart data={sCurveForAct(a.key, tasks)} color={a.color} soft={a.soft} />
+              </div>)}
+            </div>
           </Card>
         </div>}
 
