@@ -764,12 +764,8 @@ function ActSCurveModal({ act, tasks, onClose }) {
   const [busy, setBusy] = React.useState(false);
   const data = React.useMemo(() => sCurveForAct(act.key, tasks), [act, tasks]);
   const savePng = () => {
-    const node = ref.current;
-    if (!node || !window.html2canvas) { alert("Modul export belum siap. Coba lagi."); return; }
     setBusy(true);
-    window.html2canvas(node, { backgroundColor: "#ffffff", scale: 2, logging: false }).then((canvas) => {
-      const a = document.createElement("a"); a.href = canvas.toDataURL("image/png"); a.download = `S-Curve-${act.label}.png`; a.click(); setBusy(false);
-    }).catch(() => { setBusy(false); alert("Gagal membuat PNG."); });
+    exportNodeToPptPng(ref.current, `S-Curve-${act.label}-4x3.png`, { padTop: 70, padBottom: 70 }).then(() => setBusy(false));
   };
   return <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(19,41,61,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 95, padding: 16 }}>
     <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: 960, maxWidth: "100%", maxHeight: "94vh", overflow: "auto", boxShadow: "0 30px 70px rgba(19,41,61,.3)" }}>
@@ -830,6 +826,9 @@ function paymentMonths(rab, fee, terms, trans, acosts) {
 }
 function PaymentChart({ data, acts }) {
   const [focus, setFocus] = useState(null);
+  const [pngBusy, setPngBusy] = useState(false);
+  const chartRef = React.useRef(null);
+  const exportPng = () => { setPngBusy(true); exportNodeToPptPng(chartRef.current, "Grafik-Pembayaran" + (focus ? "-" + focus : "") + "-4x3.png", { title: "Grafik Pembayaran" + (focus ? " — " + focus : " — Semua Kegiatan"), subtitle: PROJECT.name + " · nominal per bulan · status per " + fmtDate(PROJECT.statusDate) }).then(() => setPngBusy(false)); };
   const W = 900, H = 280, pad = { l: 68, r: 16, t: 16, b: 36 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, n = data.length;
   if (!n) return <div style={{ fontSize: 12.5, color: C.slate, padding: 20, textAlign: "center" }}>Belum ada data pembayaran.</div>;
@@ -843,11 +842,12 @@ function PaymentChart({ data, acts }) {
   const areaOf = (k) => { const path = pathOf(k); return path ? `${path} L${x(n-1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z` : ""; };
   const gridLines = [0, 0.25, 0.5, 0.75, 1].map((f) => f * niceMax);
   return <div>
-    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
       <button onClick={() => setFocus(null)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${!focus ? C.violet : C.line}`, background: !focus ? C.violetSoft : "#fff", color: !focus ? C.violet : C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Semua Kegiatan</button>
       {acts.map((a) => <button key={a.key} onClick={() => setFocus(focus === a.label ? null : a.label)} style={{ padding: "5px 12px", borderRadius: 8, border: `1px solid ${focus === a.label ? a.color : C.line}`, background: focus === a.label ? (a.soft || "#EEF") : "#fff", color: focus === a.label ? a.color : C.slate, fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 99, background: a.color, flexShrink: 0 }} />{a.label}</button>)}
+      <button onClick={exportPng} disabled={pngBusy} title="Unduh PNG 4:3 untuk PowerPoint" style={{ marginLeft: "auto", padding: "5px 12px", borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff", color: C.slate, fontSize: 12, fontWeight: 700, cursor: pngBusy ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5 }}><Ic name="download" size={14} /> {pngBusy ? "Menyiapkan…" : "PNG"}</button>
     </div>
-    <div style={{ width: "100%", overflow: "hidden" }}>
+    <div ref={chartRef} style={{ width: "100%", overflow: "hidden", background: "#fff" }}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" style={{ display: "block", width: "100%", height: "auto" }}>
         {gridLines.map((g, i) => <g key={i}><line x1={pad.l} x2={W - pad.r} y1={y(g)} y2={y(g)} stroke={C.line} /><text x={pad.l - 6} y={y(g) + 3} textAnchor="end" fontSize="8" fill={C.slate}>{rpShort(g)}</text></g>)}
         {data.map((d, i) => <text key={i} x={x(i)} y={H - 8} textAnchor="middle" fontSize="8" fill={C.slate}>{d.label}</text>)}
@@ -866,6 +866,63 @@ function PaymentChart({ data, acts }) {
       {(focus ? [[focus, acts.find((a) => a.label === focus)?.color || C.violet]] : [...acts.map((a) => [a.label, a.color]), ["Total", C.ink]]).map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 5, color: C.slate, fontWeight: 600 }}><span style={{ width: 12, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}
     </div>
   </div>;
+}
+
+/* =========================================================================
+   EKSPOR PNG BERKUALITAS TINGGI, RASIO 4:3 UNTUK POWERPOINT
+   -------------------------------------------------------------------------
+   Menyusun gambar sumber (hasil html2canvas atau <img> dari SVG) ke atas
+   kanvas 4:3 beresolusi tinggi: latar putih, konten di-*contain* (utuh,
+   tanpa distorsi) dan diletakkan rapi. Timeline sepanjang apa pun tetap
+   menghasilkan file 4:3 yang tajam dan pas satu halaman slide.
+   ========================================================================= */
+const PPT_W = 2600, PPT_H = 1950;               // 4:3, ~ setara 260 DPI di slide 10"x7.5"
+function composeAndDownload(srcCanvas, filename, opts) {
+  const o = opts || {};
+  const padX = o.padX != null ? o.padX : 60;
+  const padTop = o.padTop != null ? o.padTop : (o.title ? 150 : 60);
+  const padBottom = o.padBottom != null ? o.padBottom : (o.footer ? 96 : 60);
+  const out = document.createElement("canvas");
+  out.width = PPT_W; out.height = PPT_H;
+  const ctx = out.getContext("2d");
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, PPT_W, PPT_H);
+  // area yang tersedia untuk konten
+  const availW = PPT_W - padX * 2, availH = PPT_H - padTop - padBottom;
+  const sw = srcCanvas.width, sh = srcCanvas.height;
+  const scale = Math.min(availW / sw, availH / sh);   // contain: utuh, tak terpotong
+  const dw = sw * scale, dh = sh * scale;
+  const dx = (PPT_W - dw) / 2;                          // rata tengah horizontal
+  const dy = padTop + (availH - dh) / 2;                // rata tengah vertikal di area konten
+  ctx.drawImage(srcCanvas, dx, dy, dw, dh);
+  // judul & catatan opsional
+  if (o.title) {
+    ctx.fillStyle = "#102A43"; ctx.font = "700 46px Inter, Arial, sans-serif"; ctx.textBaseline = "alphabetic";
+    ctx.fillText(o.title, padX, 74);
+  }
+  if (o.subtitle) {
+    ctx.fillStyle = "#5B6B7D"; ctx.font = "500 30px Inter, Arial, sans-serif";
+    ctx.fillText(o.subtitle, padX, 118);
+  }
+  if (o.footer) {
+    ctx.fillStyle = "#5B6B7D"; ctx.font = "500 28px Inter, Arial, sans-serif";
+    ctx.fillText(o.footer, padX, PPT_H - 40);
+  }
+  const a = document.createElement("a"); a.href = out.toDataURL("image/png"); a.download = filename; a.click();
+}
+/* Render sebuah node DOM ke kanvas beresolusi tinggi lalu susun ke 4:3.
+   Skala capture dipilih agar konten mengisi lebar area 4:3 dengan tajam,
+   tetapi dibatasi agar kanvas tidak terlalu besar untuk timeline panjang. */
+function exportNodeToPptPng(node, filename, opts) {
+  if (!node || !window.html2canvas) { alert("Modul export belum siap. Coba lagi."); return Promise.resolve(false); }
+  const cssW = node.scrollWidth || node.offsetWidth || 1200;
+  const availW = PPT_W - ((opts && opts.padX != null ? opts.padX : 60) * 2);
+  // skala target: cukup untuk memenuhi lebar 4:3, minimal 2x, maksimal 4x
+  let scale = Math.max(2, Math.min(4, (availW / cssW) * 1.15));
+  if (cssW * scale > 9000) scale = 9000 / cssW;        // batasi lebar kanvas sumber
+  return window.html2canvas(node, { backgroundColor: "#ffffff", scale, logging: false, useCORS: true, windowWidth: cssW })
+    .then((canvas) => { composeAndDownload(canvas, filename, opts); return true; })
+    .catch(() => { alert("Gagal membuat PNG."); return false; });
 }
 
 /* ===== UI PRIMITIVES ===== */
@@ -1131,11 +1188,14 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
   const [tip, setTip] = useState(null);
   const w = useWinW();
   const compact = w < 760;
-  const wpx = forExport ? 20 : (compact ? 24 : 30);      // lebar 1 minggu (px)
+  const wpx = forExport ? 22 : (compact ? 24 : 30);      // lebar 1 minggu (px)
   const px = wpx / 7;                                     // lebar 1 hari
-  const rh = forExport ? 34 : 42, hMon = forExport ? 20 : 22, hWk = forExport ? 18 : 20;
+  const rowsN = useMemo(() => buildRows(tasks, act, {}, forExport).length, [tasks, act, forExport]);
+  const hsG = forExport ? Math.min(1.9, Math.max(1, 20 / Math.max(8, rowsN))) : 1;
+  const rh = forExport ? Math.round(44 * hsG) : 42, hMon = forExport ? 32 : 22, hWk = forExport ? 26 : 20;
   const hh = hMon + hWk;
-  const leftW = forExport ? 310 : (compact ? 186 : (editable ? 392 : 286));
+  const leftW = forExport ? 340 : (compact ? 186 : (editable ? 392 : 286));
+  const pbH = forExport ? 18 : 12, tbH2 = forExport ? 28 : 18;   // tinggi bar ekspor
   const rows = useMemo(() => buildRows(tasks, act, collapsed, forExport), [tasks, act, collapsed, forExport]);
 
   /* rentang selalu mencakup HARI INI + tanggal status, supaya garis penanda
@@ -1199,9 +1259,9 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
             <div key={t.id} style={{ height: rh, display: "flex", alignItems: "center", gap: 6, padding: `0 10px 0 ${10 + t.level * 16}px`, borderBottom: `1px solid ${C.line}`, background: t.level === 0 ? "#FCFDFE" : "#fff", overflow: "hidden", boxSizing: "border-box" }}>
               {t.kids > 0 && !forExport ? <button onClick={() => setCollapsed((s) => ({ ...s, [t.id]: !s[t.id] }))} title={collapsed[t.id] ? "Buka" : "Tutup"} style={{ ...iconBtn, padding: 2, transform: collapsed[t.id] ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={14} /></button> : <span style={{ width: t.level === 0 ? 18 : 0 }} />}
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: forExport ? 11 : (compact ? 12 : 13), lineHeight: 1.25, fontWeight: t.level === 0 ? 700 : 500, color: t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: t.status === STATUS.cancel ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                <div style={{ fontSize: forExport ? 14.5 : (compact ? 12 : 13), lineHeight: 1.25, fontWeight: t.level === 0 ? 700 : 500, color: t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: t.status === STATUS.cancel ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
                 {!compact && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
-                  <span style={{ fontSize: forExport ? 9.5 : 10.5, color: C.slate, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(t.start)} → {fmtDate(t.finish)}{t.kids > 0 ? ` · ${t.kids} sub` : ""}</span>
+                  <span style={{ fontSize: forExport ? 12.5 : 10.5, color: C.slate, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(t.start)} → {fmtDate(t.finish)}{t.kids > 0 ? ` · ${t.kids} sub` : ""}</span>
                   {(t.assignees || []).length > 0 && <span style={{ flexShrink: 0 }}><Avatars emails={t.assignees} users={users || []} size={forExport ? 14 : 16} /></span>}
                 </div>}
               </div>
@@ -1220,21 +1280,21 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
         <div style={{ position: "relative", width: W, flexShrink: 0 }} onMouseLeave={() => setTip(null)} onClick={(e) => { if (e.target === e.currentTarget) setInfo(null); }}>
           {/* header: baris bulan */}
           <div style={{ height: hMon, background: C.bg, position: "relative", borderBottom: `1px solid ${C.line}` }}>
-            {months.map((m, i) => <div key={i} style={{ position: "absolute", left: m.left, width: m.width, top: 0, height: hMon, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: C.ink, letterSpacing: .2, overflow: "hidden", whiteSpace: "nowrap" }}>{m.width > 40 ? m.label : ""}</div>)}
+            {months.map((m, i) => <div key={i} style={{ position: "absolute", left: m.left, width: m.width, top: 0, height: hMon, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: forExport ? 14 : 10, fontWeight: 800, color: C.ink, letterSpacing: .2, overflow: "hidden", whiteSpace: "nowrap" }}>{m.width > 40 ? m.label : ""}</div>)}
           </div>
           {/* header: baris minggu ke- */}
           <div style={{ height: hWk, background: "#fff", position: "relative", borderBottom: `1px solid ${C.line}` }}>
             {weeks.map((k, i) => <div key={i}
               onMouseEnter={() => !forExport && setTip({ left: k.left + wpx / 2, text: wkText(k) })}
               title={wkText(k)}
-              style={{ position: "absolute", left: k.left, width: wpx, top: 0, height: hWk, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: C.slate, cursor: forExport ? "default" : "help" }}>{k.wk}</div>)}
+              style={{ position: "absolute", left: k.left, width: wpx, top: 0, height: hWk, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: forExport ? 11 : 9, fontWeight: 700, color: C.slate, cursor: forExport ? "default" : "help" }}>{k.wk}</div>)}
           </div>
           {/* grid mingguan + penanda */}
           <div style={{ position: "absolute", left: 0, top: hh, width: W, height: bodyH, pointerEvents: "none", zIndex: 0 }}>
             {weeks.map((k, i) => <div key={i} style={{ position: "absolute", left: k.left, top: 0, bottom: 0, width: 1, background: C.line }} />)}
           </div>
           <div title={`Hari ini · ${tglPanjang()}`} style={{ position: "absolute", left: todayX, top: hMon, height: bodyH + hWk, width: 2, background: C.amber, zIndex: 2 }} />
-          <div style={{ position: "absolute", left: todayX, top: hMon + 1, transform: "translateX(-50%)", background: C.amber, color: "#fff", fontSize: 8.5, fontWeight: 800, borderRadius: 4, padding: "1px 5px", zIndex: 3, whiteSpace: "nowrap", pointerEvents: "none" }}>HARI INI</div>
+          <div style={{ position: "absolute", left: todayX, top: hMon + 1, transform: "translateX(-50%)", background: C.amber, color: "#fff", fontSize: forExport ? 11 : 8.5, fontWeight: 800, borderRadius: 4, padding: forExport ? "2px 7px" : "1px 5px", zIndex: 3, whiteSpace: "nowrap", pointerEvents: "none" }}>HARI INI</div>
 
           {/* baris bar */}
           {rows.map((t) => {
@@ -1247,7 +1307,7 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
                 onMouseDown={(e) => { if (!editable || forExport || isP) return; setDrag({ id: t.id, mode: "move", startX: e.clientX, start: t.start, finish: t.finish }); }}
                 onClick={() => { if (forExport) return; setInfo((v) => v && v.id === t.id ? null : { id: t.id, t, left: xOf(t.start), top: rowTop(t.id) }); }}
                 title={`Klik untuk detail — ${t.name}`}
-                style={{ position: "absolute", left: xOf(t.start), width: Math.max(6, wOf(t.start, t.finish)), top: isP ? (rh - 12) / 2 : (rh - 18) / 2, height: isP ? 12 : 18, borderRadius: isP ? 4 : 6, background: canceled ? "#FDECEF" : col + (isP ? "" : "26"), border: `1px ${canceled ? "dashed" : "solid"} ${col}`, cursor: editable && !isP && !forExport ? "grab" : "default", overflow: "hidden", zIndex: 1, opacity: canceled ? .75 : 1 }}>
+                style={{ position: "absolute", left: xOf(t.start), width: Math.max(6, wOf(t.start, t.finish)), top: isP ? (rh - pbH) / 2 : (rh - tbH2) / 2, height: isP ? pbH : tbH2, borderRadius: isP ? 4 : 6, background: canceled ? "#FDECEF" : col + (isP ? "" : "26"), border: `1px ${canceled ? "dashed" : "solid"} ${col}`, cursor: editable && !isP && !forExport ? "grab" : "default", overflow: "hidden", zIndex: 1, opacity: canceled ? .75 : 1 }}>
                 {!isP && !canceled && <div style={{ width: `${Math.min(100, t.percent)}%`, height: "100%", background: col, opacity: .85 }} />}
               </div>
               {isLate(t) && <span title={`Terlambat ${lateInfo(t).hari} hari`} style={{ position: "absolute", left: xOf(t.start) + Math.max(6, wOf(t.start, t.finish)) + 5, top: (rh - 15) / 2, color: C.red, zIndex: 2, display: "grid", placeItems: "center" }}><Ic name="alert" size={13} /></span>}
@@ -1303,11 +1363,16 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
   const [tip, setTip] = useState(null);
   const w = useWinW();
   const compact = w < 760;
-  const wpx = forExport ? 20 : (compact ? 22 : 26);
+  const wpx = forExport ? 22 : (compact ? 22 : 26);
   const px = wpx / 7;
-  const rhG = forExport ? 32 : 40, rhT = forExport ? 28 : 34;
-  const hMon = forExport ? 20 : 22, hWk = forExport ? 18 : 20, hh = hMon + hWk;
-  const leftW = forExport ? 300 : (compact ? 180 : 264);
+  /* jumlah baris (grup + induk) untuk menyetel tinggi baris ekspor secara
+     adaptif: makin sedikit baris, makin tinggi -> mengisi frame 4:3. */
+  const rowCount = useMemo(() => { let g = 0, t = 0; ACTS.forEach((a) => { const par = tasks.filter((x) => x.act === a.key && !x.parent); if (par.length) { g += 1; t += par.length; } }); return g + t; }, [tasks]);
+  const hs = forExport ? Math.min(1.9, Math.max(1, 20 / Math.max(8, rowCount))) : 1;
+  const rhG = forExport ? Math.round(46 * hs) : 40, rhT = forExport ? Math.round(40 * hs) : 34;
+  const hMon = forExport ? 32 : 22, hWk = forExport ? 26 : 20, hh = hMon + hWk;
+  const leftW = forExport ? 320 : (compact ? 180 : 264);
+  const gbH = forExport ? 28 : 16, tbH = forExport ? 24 : 13;   // tinggi bar (ekspor lebih besar)
 
   /* susun baris: header kegiatan + pekerjaan induk (sub pekerjaan tidak ditampilkan) */
   const groups = useMemo(() => ACTS.map((a) => {
@@ -1356,43 +1421,43 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
           {rows.map((r, i) => r.kind === "grp"
             ? <div key={"g" + i} style={{ height: rhG, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", borderBottom: `1px solid ${C.line}`, background: r.g.act.soft, overflow: "hidden", boxSizing: "border-box" }}>
                 {!forExport && !summaryOnly && <button onClick={() => setClosed((s) => ({ ...s, [r.g.act.key]: !s[r.g.act.key] }))} style={{ ...iconBtn, padding: 2, color: r.g.act.color, transform: closed[r.g.act.key] ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={14} /></button>}
-                <span style={{ color: r.g.act.color, flexShrink: 0, display: "grid", placeItems: "center" }}><Ic name={r.g.act.icon} size={forExport ? 13 : 15} /></span>
+                <span style={{ color: r.g.act.color, flexShrink: 0, display: "grid", placeItems: "center" }}><Ic name={r.g.act.icon} size={forExport ? 19 : 15} /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: forExport ? 12 : 13, fontWeight: 800, color: r.g.act.color, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.g.act.label}</div>
-                  <div style={{ fontSize: forExport ? 9.5 : 10.5, color: C.slate, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(r.g.start)} → {fmtDate(r.g.finish)} · {r.g.parents.length} pekerjaan</div>
+                  <div style={{ fontSize: forExport ? 17 : 13, fontWeight: 800, color: r.g.act.color, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.g.act.label}</div>
+                  <div style={{ fontSize: forExport ? 13 : 10.5, color: C.slate, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(r.g.start)} → {fmtDate(r.g.finish)} · {r.g.parents.length} pekerjaan</div>
                 </div>
-                <span style={{ fontSize: forExport ? 11 : 12, fontWeight: 800, color: r.g.act.color, fontVariantNumeric: "tabular-nums" }}>{r.g.pct}%</span>
+                <span style={{ fontSize: forExport ? 15 : 12, fontWeight: 800, color: r.g.act.color, fontVariantNumeric: "tabular-nums" }}>{r.g.pct}%</span>
               </div>
             : <div key={"t" + i} style={{ height: rhT, display: "flex", alignItems: "center", gap: 6, padding: "0 10px 0 30px", borderBottom: `1px solid ${C.line}`, background: "#fff", overflow: "hidden", boxSizing: "border-box" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: forExport ? 10.5 : 12.5, fontWeight: 600, lineHeight: 1.25, color: r.t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: r.t.status === STATUS.cancel ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.t.name}</div>
-                  <div style={{ fontSize: forExport ? 9 : 10, color: C.slate, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(r.t.start)} → {fmtDate(r.t.finish)}</div>
+                  <div style={{ fontSize: forExport ? 14.5 : 12.5, fontWeight: 600, lineHeight: 1.25, color: r.t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: r.t.status === STATUS.cancel ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.t.name}</div>
+                  <div style={{ fontSize: forExport ? 12.5 : 10, color: C.slate, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtDate(r.t.start)} → {fmtDate(r.t.finish)}</div>
                 </div>
                 <span style={{ width: 6, height: 6, borderRadius: 99, background: (SMETA[r.t.status] || SMETA[STATUS.todo]).bar, flexShrink: 0 }} />
-                <span style={{ fontSize: forExport ? 10 : 11.5, fontWeight: 700, color: r.t.percent >= 100 ? C.green : C.slate, fontVariantNumeric: "tabular-nums", minWidth: 28, textAlign: "right" }}>{r.t.percent}%</span>
+                <span style={{ fontSize: forExport ? 13.5 : 11.5, fontWeight: 700, color: r.t.percent >= 100 ? C.green : C.slate, fontVariantNumeric: "tabular-nums", minWidth: 28, textAlign: "right" }}>{r.t.percent}%</span>
               </div>)}
         </div>
 
         <div style={{ position: "relative", width: W, flexShrink: 0 }} onMouseLeave={() => setTip(null)}>
           <div style={{ height: hMon, background: C.bg, position: "relative", borderBottom: `1px solid ${C.line}` }}>
-            {months.map((m, i) => <div key={i} style={{ position: "absolute", left: m.left, width: m.width, top: 0, height: hMon, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: C.ink, overflow: "hidden", whiteSpace: "nowrap" }}>{m.width > 40 ? m.label : ""}</div>)}
+            {months.map((m, i) => <div key={i} style={{ position: "absolute", left: m.left, width: m.width, top: 0, height: hMon, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: forExport ? 14 : 10, fontWeight: 800, color: C.ink, overflow: "hidden", whiteSpace: "nowrap" }}>{m.width > 40 ? m.label : ""}</div>)}
           </div>
           <div style={{ height: hWk, background: "#fff", position: "relative", borderBottom: `1px solid ${C.line}` }}>
             {weeks.map((k, i) => <div key={i} onMouseEnter={() => !forExport && setTip({ left: k.left + wpx / 2, text: wkText(k) })} title={wkText(k)}
-              style={{ position: "absolute", left: k.left, width: wpx, top: 0, height: hWk, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8.5, fontWeight: 700, color: C.slate, cursor: forExport ? "default" : "help" }}>{k.wk}</div>)}
+              style={{ position: "absolute", left: k.left, width: wpx, top: 0, height: hWk, borderRight: `1px solid ${C.line}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: forExport ? 11 : 8.5, fontWeight: 700, color: C.slate, cursor: forExport ? "default" : "help" }}>{k.wk}</div>)}
           </div>
           <div style={{ position: "absolute", left: 0, top: hh, width: W, height: bodyH, pointerEvents: "none", zIndex: 0 }}>
             {weeks.map((k, i) => <div key={i} style={{ position: "absolute", left: k.left, top: 0, bottom: 0, width: 1, background: C.line }} />)}
           </div>
           <div title={`Hari ini · ${tglPanjang()}`} style={{ position: "absolute", left: todayX, top: hMon, height: bodyH + hWk, width: 2, background: C.amber, zIndex: 2 }} />
-          <div style={{ position: "absolute", left: todayX, top: hMon + 1, transform: "translateX(-50%)", background: C.amber, color: "#fff", fontSize: 8.5, fontWeight: 800, borderRadius: 4, padding: "1px 5px", zIndex: 3, whiteSpace: "nowrap", pointerEvents: "none" }}>HARI INI</div>
+          <div style={{ position: "absolute", left: todayX, top: hMon + 1, transform: "translateX(-50%)", background: C.amber, color: "#fff", fontSize: forExport ? 11 : 8.5, fontWeight: 800, borderRadius: 4, padding: forExport ? "2px 7px" : "1px 5px", zIndex: 3, whiteSpace: "nowrap", pointerEvents: "none" }}>HARI INI</div>
 
           {rows.map((r, i) => {
             if (r.kind === "grp") {
               const a = r.g.act;
               return <div key={"gb" + i} style={{ height: rhG, borderBottom: `1px solid ${C.line}`, position: "relative", background: a.soft }}>
                 {r.g.start && <div title={`${a.label} · ${fmtDate(r.g.start)} → ${fmtDate(r.g.finish)} · ${r.g.pct}%`}
-                  style={{ position: "absolute", left: xOf(r.g.start), width: Math.max(8, wOf(r.g.start, r.g.finish)), top: (rhG - 16) / 2, height: 16, borderRadius: 5, background: "#fff", border: `1.5px solid ${a.color}`, overflow: "hidden", zIndex: 1 }}>
+                  style={{ position: "absolute", left: xOf(r.g.start), width: Math.max(8, wOf(r.g.start, r.g.finish)), top: (rhG - gbH) / 2, height: gbH, borderRadius: 5, background: "#fff", border: `1.5px solid ${a.color}`, overflow: "hidden", zIndex: 1 }}>
                   <div style={{ width: `${Math.min(100, r.g.pct)}%`, height: "100%", background: a.color, opacity: .85 }} />
                 </div>}
               </div>;
@@ -1401,7 +1466,7 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
             const canceled = r.t.status === STATUS.cancel;
             return <div key={"tb" + i} style={{ height: rhT, borderBottom: `1px solid ${C.line}`, position: "relative", background: "#fff" }}>
               <div title={`${r.t.name} · ${fmtDate(r.t.start)} → ${fmtDate(r.t.finish)} · ${r.t.percent}% · ${r.t.status}`}
-                style={{ position: "absolute", left: xOf(r.t.start), width: Math.max(6, wOf(r.t.start, r.t.finish)), top: (rhT - 13) / 2, height: 13, borderRadius: 4, background: canceled ? "#FDECEF" : m.bar + "26", border: `1px ${canceled ? "dashed" : "solid"} ${m.bar}`, overflow: "hidden", zIndex: 1, opacity: canceled ? .75 : 1 }}>
+                style={{ position: "absolute", left: xOf(r.t.start), width: Math.max(6, wOf(r.t.start, r.t.finish)), top: (rhT - tbH) / 2, height: tbH, borderRadius: 4, background: canceled ? "#FDECEF" : m.bar + "26", border: `1px ${canceled ? "dashed" : "solid"} ${m.bar}`, overflow: "hidden", zIndex: 1, opacity: canceled ? .75 : 1 }}>
                 {!canceled && <div style={{ width: `${Math.min(100, r.t.percent)}%`, height: "100%", background: m.bar, opacity: .85 }} />}
               </div>
             </div>;
@@ -3185,6 +3250,7 @@ function App() {
   const syncSt = useSyncState();
   const ganttRef = useRef(null);
   const scWrapRef = useRef(null);
+  const scCardRef = useRef(null);
   const w = useWinW();
   const isMobile = w < 900;
   const [sidebar, setSidebar] = useState(true);
@@ -3208,49 +3274,23 @@ function App() {
   const myOpen = user ? mytasks.filter((t) => (t.owner || "").toLowerCase() === uname(user) && !t.done).length : 0;
 
   const exportSCurvePNG = () => {
-    const svg = scWrapRef.current && scWrapRef.current.querySelector("svg");
-    if (!svg || typeof XMLSerializer === "undefined") { alert("Grafik belum siap. Coba lagi."); return; }
-    const vb = svg.viewBox.baseVal;
-    const wd = vb && vb.width ? vb.width : 1080, h = vb && vb.height ? vb.height : 260;
-    const clone = svg.cloneNode(true);
-    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-    clone.setAttribute("width", wd); clone.setAttribute("height", h);
-    const xml = new XMLSerializer().serializeToString(clone);
-    const src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
-    const img = new Image();
-    img.onload = () => {
-      const scale = 2, headerH = 70, footerH = 30;
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(wd * scale); canvas.height = Math.round((h + headerH + footerH) * scale);
-      const ctx = canvas.getContext("2d"); ctx.scale(scale, scale);
-      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, wd, h + headerH + footerH);
-      ctx.fillStyle = C.ink; ctx.font = "700 17px Inter, Arial, sans-serif"; ctx.textBaseline = "alphabetic";
-      ctx.fillText("Kurva-S — " + PROJECT.name, 18, 28);
-      ctx.fillStyle = C.slate; ctx.font = "500 12px Inter, Arial, sans-serif";
-      ctx.fillText(ACTS.map((a) => a.label).join(" · ") + " · Total — posisi per " + tglPanjang(), 18, 48);
-      ctx.drawImage(img, 0, headerH, wd, h);
-      ctx.fillStyle = C.slate; ctx.font = "500 10.5px Inter, Arial, sans-serif";
-      ctx.fillText("Hari ini: " + seriesList().map(([k]) => k + " " + scToday.vals[k] + "%").join(" · "), 18, h + headerH + 20);
-      const a = document.createElement("a"); a.href = canvas.toDataURL("image/png"); a.download = "S-Curve-MRT-Jakarta.png"; a.click();
-      log("Unduh PNG", "Kurva-S");
-    };
-    img.onerror = () => alert("Gagal membuat PNG kurva-S.");
-    img.src = src;
+    const node = scCardRef.current || scWrapRef.current;
+    exportNodeToPptPng(node, "S-Curve-4x3.png", {
+      title: "S-Curve — " + PROJECT.name,
+      subtitle: ACTS.map((a) => a.label).join(" · ") + " · Total · status per " + fmtDate(PROJECT.statusDate),
+      footer: "Hari ini: " + seriesList().map(([k]) => k + " " + scToday.vals[k] + "%").join(" · "),
+    }).then(() => log("Unduh PNG", "Kurva-S"));
   };
 
   useEffect(() => {
     if (!exportAct) return;
     const t = setTimeout(() => {
       const node = ganttRef.current;
-      if (!node || !window.html2canvas) { setExportAct(null); alert("Modul export belum siap. Coba lagi."); return; }
-      window.html2canvas(node, { backgroundColor: "#ffffff", scale: 2, logging: false }).then((canvas) => {
-        const maxW = 1500, k = Math.min(1, maxW / canvas.width);
-        const out = document.createElement("canvas"); out.width = Math.round(canvas.width * k); out.height = Math.round(canvas.height * k);
-        const ctx = out.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, out.width, out.height); ctx.imageSmoothingQuality = "high"; ctx.drawImage(canvas, 0, 0, out.width, out.height);
-        const a = document.createElement("a"); a.href = out.toDataURL("image/png"); a.download = exportAct === "__master__" ? "Master-Gantt-3-Kegiatan.png" : `Gantt-${actOf(exportAct).label}.png`; a.click();
-        log("Unduh PNG", exportAct === "__master__" ? "Master Gantt 3 kegiatan" : `Gantt ${actOf(exportAct).label}`);
-        setExportAct(null);
-      }).catch(() => { setExportAct(null); alert("Gagal membuat PNG."); });
+      const isMaster = exportAct === "__master__";
+      const fname = isMaster ? "Master-Schedule-4x3.png" : `Gantt-${actOf(exportAct).label}-4x3.png`;
+      exportNodeToPptPng(node, fname, { padTop: 48, padBottom: 56, footer: PROJECT.name + " · " + PROJECT.sub })
+        .then(() => { log("Unduh PNG", isMaster ? "Master Gantt 3 kegiatan" : `Gantt ${actOf(exportAct).label}`); setExportAct(null); })
+        .catch(() => setExportAct(null));
     }, 120);
     return () => clearTimeout(t);
   }, [exportAct]);
@@ -3467,7 +3507,7 @@ function App() {
 
           <Card>
             <CardHead icon="trending" title="S-Curve" right={<div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}><div style={{ display: "flex", gap: 12, fontSize: 12, flexWrap: "wrap" }}>{seriesList().map(([l, c]) => <span key={l} style={{ display: "flex", alignItems: "center", gap: 6, color: C.slate, fontWeight: 600 }}><span style={{ width: 14, height: 3, background: c, borderRadius: 2 }} />{l}</span>)}</div><Btn kind="ghost" size="sm" onClick={exportSCurvePNG}><Ic name="download" size={15} /> Unduh PNG</Btn></div>} />
-            <div ref={scWrapRef} style={{ minWidth: 0 }}><SCurveChart data={sc} today={scToday} /></div>
+            <div ref={(el) => { scWrapRef.current = el; scCardRef.current = el; }} style={{ minWidth: 0, background: "#fff", padding: 4 }}><SCurveChart data={sc} today={scToday} /></div>
           </Card>
 
           <Card>
