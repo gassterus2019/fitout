@@ -201,6 +201,7 @@ const ICONS = {
   pencil: (<g><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></g>),
   trash: (<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />),
   x: (<path d="M18 6 6 18M6 6l12 12" />),
+  link: (<g><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></g>),
   expand: (<g><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></g>),
   trending: (<g><path d="M22 7 13.5 15.5 8.5 10.5 2 17" /><path d="M16 7h6v6" /></g>),
   dollar: (<g><circle cx="12" cy="12" r="10" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8M12 6v2m0 8v2" /></g>),
@@ -1150,7 +1151,34 @@ function lateInfo(t) {
 }
 const lateDays = (t) => (t.actualFinish ? days(D(t.finish), D(t.actualFinish)) : 0);
 /* daftar penerus (successor) = kebalikan predecessor */
-const succOf = (tasks, id) => tasks.filter((t) => (t.pred || []).indexOf(id) >= 0);
+/* ---- Ketergantungan dengan tipe FS/SS/FF/SF ----
+   Disimpan di array pred sebagai "predId:TIPE" (mis. "t3:SS"). Data lama yang
+   hanya berisi id dianggap FS (Finish-to-Start). */
+const DEP_TYPES = ["FS", "SS", "FF", "SF"];
+const DEP_LABEL = { FS: "Finish → Start", SS: "Start → Start", FF: "Finish → Finish", SF: "Start → Finish" };
+const depId = (p) => String(p).split(":")[0];
+const depType = (p) => { const t = String(p).split(":")[1]; return DEP_TYPES.indexOf(t) >= 0 ? t : "FS"; };
+const mkDep = (id, type) => id + ":" + (DEP_TYPES.indexOf(type) >= 0 ? type : "FS");
+const predIds = (t) => (t.pred || []).map(depId);
+const succOf = (tasks, id) => tasks.filter((t) => predIds(t).indexOf(id) >= 0);
+/* mulai paling awal yang diperbolehkan oleh satu predecessor sesuai tipenya,
+   diberikan durasi (hari) pekerjaan penerus. */
+function depReqStart(predTask, type, dur) {
+  const ps = D(predTask.start), pf = D(effFinish(predTask));
+  if (type === "SS") return ps;                       // mulai >= mulai pred
+  if (type === "FF") return addDays(pf, -dur);         // selesai >= selesai pred
+  if (type === "SF") return addDays(ps, -dur);         // selesai >= mulai pred
+  return addDays(pf, 1);                               // FS: mulai >= selesai pred + 1
+}
+/* mulai paling awal gabungan dari semua predecessor (sadar tipe). */
+function earliestStartForDur(byIdOrTasks, preds, dur) {
+  const byId = byIdOrTasks instanceof Map ? byIdOrTasks : new Map((byIdOrTasks || []).map((t) => [t.id, t]));
+  let req = null;
+  (preds || []).forEach((p) => { const pt = byId.get(depId(p)); if (pt) { const r = depReqStart(pt, depType(p), dur); if (!req || r > req) req = r; } });
+  return req;
+}
+/* kompat: dipakai untuk catatan di modal (durasi diambil dari start/finish tugas). */
+function earliestStartFor(tasks, preds, dur) { return earliestStartForDur(tasks, preds, dur || 0); }
 /* apakah menambah pred akan membuat lingkaran ketergantungan? */
 function makesCycle(tasks, id, predId) {
   if (id === predId) return true;
@@ -1161,7 +1189,7 @@ function makesCycle(tasks, id, predId) {
     if (cur === id) return true;
     if (seen.has(cur)) continue; seen.add(cur);
     const t = byId.get(cur); if (!t) continue;
-    (t.pred || []).forEach((p) => stack.push(p));
+    predIds(t).forEach((p) => stack.push(p));
   }
   return false;
 }
@@ -1172,7 +1200,7 @@ function recalcSchedule(tasks) {
   const byId = new Map(tasks.map((t) => [t.id, { ...t }]));
   const indeg = new Map(), adj = new Map();
   tasks.forEach((t) => { indeg.set(t.id, 0); adj.set(t.id, []); });
-  tasks.forEach((t) => (t.pred || []).forEach((p) => {
+  tasks.forEach((t) => predIds(t).forEach((p) => {
     if (byId.has(p)) { adj.get(p).push(t.id); indeg.set(t.id, (indeg.get(t.id) || 0) + 1); }
   }));
   const q = tasks.filter((t) => indeg.get(t.id) === 0).map((t) => t.id);
@@ -1184,13 +1212,10 @@ function recalcSchedule(tasks) {
   let moved = 0;
   order.forEach((id) => {
     const t = byId.get(id);
-    const preds = (t.pred || []).map((p) => byId.get(p)).filter(Boolean);
-    if (!preds.length) return;
-    let latest = null;
-    preds.forEach((p) => { const f = D(effFinish(p)); if (!latest || f > latest) latest = f; });
-    const earliest = addDays(latest, 1);
-    if (D(t.start) < earliest) {
-      const dur = days(D(t.start), D(t.finish));
+    if (!(t.pred || []).length) return;
+    const dur = days(D(t.start), D(t.finish));
+    const earliest = earliestStartForDur(byId, t.pred, dur);
+    if (earliest && D(t.start) < earliest) {
       t.start = iso(earliest); t.finish = iso(addDays(earliest, dur));
       moved++;
     }
@@ -1217,6 +1242,44 @@ function predictFinishInfo(tasks, act) {
   else if (o && driver.finish !== o.finish) reason = "tergeser predecessor (rencana " + fmtDate(o.finish) + ")";
   else if ((driver.pred || []).length) reason = "menunggu " + (driver.pred || []).length + " predecessor";
   return { date: iso(mx), driver, reason, actLabel: actOf(driver.act).label, crossAct: !!(act && driver.act !== act) };
+}
+
+/* jalur siku (orthogonal) untuk panah ketergantungan */
+function orthPath(x1, y1, x2, y2) {
+  const s = 9;
+  const midx = x2 >= x1 ? Math.max(x1 + s, x2 - s) : Math.min(x1 - s, x2 - s);
+  if (Math.abs(y1 - y2) < 0.5) return `M${x1.toFixed(1)},${y1.toFixed(1)} L${x2.toFixed(1)},${y2.toFixed(1)}`;
+  return `M${x1.toFixed(1)},${y1.toFixed(1)} L${midx.toFixed(1)},${y1.toFixed(1)} L${midx.toFixed(1)},${y2.toFixed(1)} L${x2.toFixed(1)},${y2.toFixed(1)}`;
+}
+/* Hitung panah dependency untuk sekumpulan baris yang TERLIHAT.
+   geo(id) -> { left, right, midY } dalam koordinat overlay (px). */
+function depArrows(rows, geo) {
+  const vis = new Set(rows.map((r) => r.id));
+  const out = [];
+  rows.forEach((t) => (t.pred || []).forEach((e) => {
+    const pid = depId(e), ty = depType(e);
+    if (!vis.has(pid)) return;                 // predecessor tak terlihat (kolaps/lintas kegiatan)
+    const g1 = geo(pid), g2 = geo(t.id); if (!g1 || !g2) return;
+    let x1, x2;
+    if (ty === "SS") { x1 = g1.left; x2 = g2.left; }
+    else if (ty === "FF") { x1 = g1.right; x2 = g2.right; }
+    else if (ty === "SF") { x1 = g1.left; x2 = g2.right; }
+    else { x1 = g1.right; x2 = g2.left; }       // FS
+    const s = 9, midx = x2 >= x1 ? Math.max(x1 + s, x2 - s) : Math.min(x1 - s, x2 - s);
+    const dir = x2 >= midx ? 1 : -1;            // arah ujung panah pada segmen horizontal terakhir
+    out.push({ d: orthPath(x1, g1.midY, x2, g2.midY), ex: x2, ey: g2.midY, dir, ty });
+  }));
+  return out;
+}
+/* overlay SVG panah — ujung panah digambar sebagai segitiga eksplisit
+   (bukan marker) agar tetap muncul saat diekspor via html2canvas. */
+function ArrowLayer({ arrows, W, H, top, color, big }) {
+  if (!arrows.length) return null;
+  const hw = big ? 5 : 4, hh2 = big ? 4 : 3;
+  return <svg style={{ position: "absolute", left: 0, top, width: W, height: H, pointerEvents: "none", zIndex: 2, overflow: "visible" }} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+    {arrows.map((a, i) => <path key={"l" + i} d={a.d} fill="none" stroke={color} strokeWidth={big ? 1.8 : 1.4} strokeOpacity=".9" />)}
+    {arrows.map((a, i) => <path key={"h" + i} d={`M${a.ex},${a.ey} L${(a.ex - a.dir * hw).toFixed(1)},${(a.ey - hh2).toFixed(1)} L${(a.ex - a.dir * hw).toFixed(1)},${(a.ey + hh2).toFixed(1)} Z`} fill={color} />)}
+  </svg>;
 }
 
 /* ===== GANTT (sumbu: Bulan + Minggu ke-, garis hari ini, tooltip tanggal) ===== */
@@ -1290,6 +1353,8 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
   const todayX = xOf(iso(todayNoon()));
   const bodyH = rows.length * rh;
   const rowTop = (id) => hh + Math.max(0, rows.findIndex((r) => r.id === id)) * rh;
+  const barGeo = (id) => { const i = rows.findIndex((r) => r.id === id); if (i < 0) return null; const t = rows[i]; return { left: xOf(t.start), right: xOf(t.start) + Math.max(6, wOf(t.start, t.finish)), midY: i * rh + rh / 2 }; };
+  const arrows = depArrows(rows, barGeo);
   const outer = forExport ? { width: leftW + W } : {};
   const wkText = (k) => `Minggu ke-${k.wk} (${k.yr}) · ${fmtDate(iso(k.start))} – ${fmtDate(iso(addDays(k.start, 6)))}`;
 
@@ -1302,8 +1367,9 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
         <div style={{ width: leftW, flexShrink: 0, borderRight: `1px solid ${C.line}`, position: forExport ? "static" : "sticky", left: 0, background: "#fff", zIndex: 3 }}>
           <div style={{ height: hh, display: "flex", alignItems: "center", padding: "0 12px", fontSize: 11, fontWeight: 700, color: C.slate, borderBottom: `1px solid ${C.line}`, background: C.bg }}>PEKERJAAN / SUB PEKERJAAN</div>
           {rows.map((t) => { const m = SMETA[t.status] || SMETA[STATUS.todo]; return (
-            <div key={t.id} style={{ height: rh, display: "flex", alignItems: "center", gap: 6, padding: `0 10px 0 ${10 + t.level * 16}px`, borderBottom: `1px solid ${C.line}`, background: t.level === 0 ? "#FCFDFE" : "#fff", overflow: "hidden", boxSizing: "border-box" }}>
+            <div key={t.id} style={{ height: rh, display: "flex", alignItems: "center", gap: 6, padding: `0 10px 0 ${10 + t.level * (forExport ? 34 : 16)}px`, borderBottom: `1px solid ${C.line}`, background: t.level === 0 ? "#FCFDFE" : "#fff", overflow: "hidden", boxSizing: "border-box" }}>
               {t.kids > 0 && !forExport ? <button onClick={() => setCollapsed((s) => ({ ...s, [t.id]: !s[t.id] }))} title={collapsed[t.id] ? "Buka" : "Tutup"} style={{ ...iconBtn, padding: 2, transform: collapsed[t.id] ? "rotate(-90deg)" : "none", transition: ".15s" }}><Ic name="chevD" size={14} /></button> : <span style={{ width: t.level === 0 ? 18 : 0 }} />}
+              {forExport && t.level > 0 && <span style={{ color: "#B8C4D0", flexShrink: 0, fontSize: 15, marginRight: 2 }}>↳</span>}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: forExport ? 14.5 : (compact ? 12 : 13), lineHeight: 1.25, fontWeight: t.level === 0 ? 700 : 500, color: t.status === STATUS.cancel ? C.slate : C.ink, textDecoration: t.status === STATUS.cancel ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
                 {!compact && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
@@ -1360,6 +1426,9 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
               {editable && !forExport && !isP && <div onMouseDown={(e) => { e.stopPropagation(); setDrag({ id: t.id, mode: "resize", startX: e.clientX, start: t.start, finish: t.finish }); }} style={{ position: "absolute", left: xOf(t.start) + Math.max(6, wOf(t.start, t.finish)) - 5, top: (rh - 18) / 2, width: 10, height: 18, cursor: "ew-resize", zIndex: 2 }} />}
             </div>;
           })}
+
+          {/* PANAH KETERGANTUNGAN (successor/predecessor) */}
+          <ArrowLayer arrows={arrows} W={W} H={bodyH} top={hh} color={C.blue} big={forExport} />
 
           {/* INFO BOX detail pekerjaan — muncul saat bar diklik */}
           {info && !forExport && (() => {
@@ -1459,6 +1528,9 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
 
   const todayX = xOf(iso(todayNoon()));
   const bodyH = rows.reduce((a, r) => a + (r.kind === "grp" ? rhG : rhT), 0);
+  const rowY = (() => { const m = new Map(); let acc = 0; rows.forEach((r) => { const h = r.kind === "grp" ? rhG : rhT; if (r.kind === "task") m.set(r.t.id, { top: acc, h, t: r.t }); acc += h; }); return m; })();
+  const barGeoM = (id) => { const e = rowY.get(id); if (!e) return null; const t = e.t; return { left: xOf(t.start), right: xOf(t.start) + Math.max(6, wOf(t.start, t.finish)), midY: e.top + e.h / 2 }; };
+  const arrowsM = depArrows(rows.filter((r) => r.kind === "task").map((r) => ({ id: r.t.id, pred: r.t.pred })), barGeoM);
   const wkText = (k) => `Minggu ke-${k.wk} (${k.yr}) · ${fmtDate(iso(k.start))} – ${fmtDate(iso(addDays(k.start, 6)))}`;
   if (!rows.length) return <Empty text="Belum ada pekerjaan pada ketiga kegiatan." />;
 
@@ -1520,6 +1592,7 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
               </div>
             </div>;
           })}
+          <ArrowLayer arrows={arrowsM} W={W} H={bodyH} top={hh} color={C.blue} big={forExport} />
           {tip && !forExport && <div style={{ position: "absolute", left: tip.left, top: hh + 4, transform: "translateX(-50%)", background: C.ink, color: "#fff", fontSize: 10.5, fontWeight: 600, padding: "5px 9px", borderRadius: 7, whiteSpace: "nowrap", pointerEvents: "none", zIndex: 9, boxShadow: "0 6px 18px rgba(19,41,61,.28)" }}>{tip.text}</div>}
         </div>
       </div>
@@ -1558,14 +1631,20 @@ function DepPicker({ tasks, exclude, onPick, label }) {
     <div style={{ fontSize: 11, color: C.slate }}>{label}</div>
   </div>;
 }
-function DepChips({ ids, tasks, onRemove, color }) {
-  if (!ids.length) return <div style={{ fontSize: 12, color: "#A9B7C6", padding: "4px 0" }}>Belum ada.</div>;
-  return <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-    {ids.map((id) => { const t = tasks.find((x) => x.id === id); if (!t) return null;
-      return <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: color + "14", color, border: `1px solid ${color}44`, borderRadius: 8, padding: "4px 8px", fontSize: 11.5, fontWeight: 600 }}>
-        {t.name} <span style={{ opacity: .7, fontWeight: 500 }}>{fmtDate(effFinish(t))}</span>
-        <button onClick={() => onRemove(id)} style={{ ...iconBtn, padding: 0, color }}><Ic name="x" size={12} /></button>
-      </span>; })}
+/* daftar relasi dengan pemilih tipe FS/SS/FF/SF per baris */
+function DepTypeList({ entries, tasks, onRemove, onType, color }) {
+  if (!entries.length) return <div style={{ fontSize: 12, color: "#A9B7C6", padding: "4px 0" }}>Belum ada.</div>;
+  return <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
+    {entries.map((e) => { const id = depId(e), ty = depType(e); const t = tasks.find((x) => x.id === id); if (!t) return null;
+      const A = actOf(t.act);
+      return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, background: color + "10", border: `1px solid ${color}33`, borderRadius: 9, padding: "5px 8px" }}>
+        <span style={{ width: 7, height: 7, borderRadius: 99, background: A.color, flexShrink: 0 }} />
+        <span style={{ minWidth: 0, flex: 1 }}><span style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span><span style={{ fontSize: 10.5, color: C.slate }}>{A.label} · {fmtDate(effFinish(t))}</span></span>
+        <select value={ty} onChange={(ev) => onType(id, ev.target.value)} title={DEP_LABEL[ty]} style={{ fontSize: 11.5, fontWeight: 700, color, background: "#fff", border: `1px solid ${color}55`, borderRadius: 7, padding: "3px 5px", cursor: "pointer", flexShrink: 0 }}>
+          {DEP_TYPES.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <button onClick={() => onRemove(id)} title="Hapus relasi" style={{ ...iconBtn, padding: 0, color, flexShrink: 0 }}><Ic name="x" size={13} /></button>
+      </div>; })}
   </div>;
 }
 function TaskModal({ task, act, tasks, users, onClose, onSave }) {
@@ -1578,9 +1657,19 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
     return { ...base, todos, pred: base.pred || [], actualFinish: base.actualFinish || "" };
   });
   const showTodo = !!f.parent && !hasKids; /* to-do hanya untuk sub pekerjaan */
-  const [succ, setSucc] = useState(task ? succOf(tasks, task.id).map((t) => t.id) : []);
+  const [succ, setSucc] = useState(task ? succOf(tasks, task.id).map((t) => { const e = (t.pred || []).find((x) => depId(x) === task.id); return mkDep(t.id, e ? depType(e) : "FS"); }) : []);
+  const [noPred, setNoPred] = useState(task ? ((task.pred || []).length === 0) : false);
+  const [noSucc, setNoSucc] = useState(task ? (succOf(tasks, task.id).length === 0) : false);
   const [err, setErr] = useState("");
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
+  /* Bila mulai lebih awal dari yang diizinkan predecessor, geser maju
+     (durasi dipertahankan). Dipakai saat menambah predecessor. */
+  const snapToPreds = (preds, start, finish) => {
+    const dur = days(D(start), D(finish));
+    const e = earliestStartForDur(tasks, preds, dur);
+    if (e && D(start) < e) { return { start: iso(e), finish: iso(addDays(e, dur)) }; }
+    return null;
+  };
   const setTodo = (id, patch) => setF((s) => ({ ...s, todos: s.todos.map((t) => t.id === id ? { ...t, ...patch } : t) }));
   const addTodo = () => setF((s) => ({ ...s, todos: [...s.todos, { id: uid(), text: "", done: false }] }));
   const delTodo = (id) => setF((s) => s.todos.length <= 1 ? s : ({ ...s, todos: s.todos.filter((t) => t.id !== id) }));
@@ -1599,10 +1688,12 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
       if (f.todos.some((t) => !t.text.trim())) { setErr("Semua to-do list wajib diisi teksnya (atau hapus baris yang kosong)."); return; }
     }
     if (f.actualFinish && D(f.actualFinish) < D(f.start)) { setErr("Penyelesaian aktual tidak boleh mendahului tanggal mulai."); return; }
+    if (!noPred && (f.pred || []).length === 0) { setErr("Isi minimal satu predecessor, atau centang \"Tidak ada predecessor\"."); return; }
+    if (task && !noSucc && succ.length === 0) { setErr("Isi minimal satu successor, atau centang \"Tidak ada successor\"."); return; }
     const pct = showTodo ? autoPct : (hasKids ? Number(f.percent) || 0 : Number(f.percent) || 0);
     onSave({ ...f, act, percent: pct, status: f.status === STATUS.cancel ? STATUS.cancel : stOf(pct), todos: showTodo ? f.todos.map((t) => ({ ...t, text: t.text.trim() })) : [], _succ: succ });
   };
-  const exclude = [task ? task.id : "x", ...f.pred];
+  const exclude = [task ? task.id : "x", ...predIds(f)];
   return <Modal title={task ? "Edit Pekerjaan" : "Tambah Pekerjaan"} onClose={onClose} width={620}>
     <ReqNote />
     <Field label="Nama pekerjaan" req><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Proses Tender / Market Survei" /></Field>
@@ -1618,8 +1709,9 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
       <Field label="Selesai (rencana)" req><Input type="date" value={f.finish} onChange={(e) => set("finish", e.target.value)} disabled={hasKids} /></Field>
       <Field label="Penyelesaian aktual"><Input type="date" value={f.actualFinish || ""} onChange={(e) => set("actualFinish", e.target.value)} disabled={hasKids} /></Field>
     </div>
+    {f.pred && f.pred.length > 0 && (() => { const e = earliestStartFor(tasks, f.pred, days(D(f.start), D(f.finish))); return e ? <div style={{ fontSize: 11.5, color: C.blue, marginTop: 4, display: "flex", alignItems: "center", gap: 5 }}><Ic name="link" size={12} /> Tanggal mulai mengikuti predecessor otomatis (paling awal {fmtDate(iso(e))}). Bila predecessor mundur, tanggal ini ikut mundur.</div> : null; })()}
     {f.actualFinish && <div style={{ fontSize: 12, fontWeight: 700, marginTop: 4, color: late > 0 ? C.red : C.green }}>
-      {late > 0 ? `Telat ${late} hari — pekerjaan penerus akan otomatis mundur saat dijadwalkan ulang.` : late < 0 ? `Lebih cepat ${Math.abs(late)} hari dari rencana.` : "Tepat sesuai rencana."}
+      {late > 0 ? `Telat ${late} hari — pekerjaan penerus akan otomatis mundur mengikuti tanggal ini.` : late < 0 ? `Lebih cepat ${Math.abs(late)} hari dari rencana.` : "Tepat sesuai rencana."}
     </div>}
 
     <div className="g2" style={{ marginTop: 12 }}>
@@ -1663,19 +1755,49 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
       <div style={{ fontSize: 11, color: C.slate, marginTop: 4 }}>Pekerjaan utama tanpa sub pekerjaan — progres diatur manual. Tambahkan sub pekerjaan agar progres dihitung otomatis dari to-do list.</div>
     </div>}
 
-    {/* ---- KETERGANTUNGAN ---- */}
+    {/* ---- KETERGANTUNGAN (dengan tipe FS/SS/FF/SF) ---- */}
     <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Ketergantungan jadwal</div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.slate, marginBottom: 5 }}>Predecessor — pekerjaan yang harus selesai lebih dulu</div>
-      <DepPicker tasks={tasks} exclude={exclude} label="Pilih kegiatan → pekerjaan → sub pekerjaan. Bisa lintas kegiatan."
-        onPick={(id) => { if (task && makesCycle(tasks, task.id, id)) { setErr("Tidak bisa: akan membuat ketergantungan melingkar."); return; } setErr(""); set("pred", [...f.pred, id]); }} />
-      <DepChips ids={f.pred} tasks={tasks} color={C.blue} onRemove={(id) => set("pred", f.pred.filter((x) => x !== id))} />
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.slate, margin: "12px 0 5px" }}>Successor — pekerjaan yang menunggu pekerjaan ini</div>
-      {task ? <>
-        <DepPicker tasks={tasks} exclude={[task.id, ...succ]} label="Pekerjaan terpilih akan otomatis mundur bila pekerjaan ini telat."
-          onPick={(id) => { if (makesCycle(tasks, id, task.id)) { setErr("Tidak bisa: akan membuat ketergantungan melingkar."); return; } setErr(""); setSucc((s) => [...s, id]); }} />
-        <DepChips ids={succ} tasks={tasks} color={C.orange} onRemove={(id) => setSucc((s) => s.filter((x) => x !== id))} />
-      </> : <div style={{ fontSize: 12, color: "#A9B7C6" }}>Simpan pekerjaan ini dulu, successor bisa diatur setelahnya.</div>}
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Ketergantungan jadwal <span style={{ color: C.red }}>*</span></div>
+
+      {/* PREDECESSOR */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>Predecessor — pekerjaan yang harus mendahului</div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.slate, cursor: "pointer" }}>
+          <input type="checkbox" checked={noPred} onChange={(e) => { const v = e.target.checked; setNoPred(v); if (v) set("pred", []); }} /> Tidak ada predecessor
+        </label>
+      </div>
+      {!noPred && <>
+        <DepPicker tasks={tasks} exclude={[...exclude, ...predIds(f)]} label="Pilih kegiatan → pekerjaan → sub pekerjaan. Bisa lintas kegiatan."
+          onPick={(id) => {
+            if (task && makesCycle(tasks, task.id, id)) { setErr("Tidak bisa: akan membuat ketergantungan melingkar."); return; }
+            setErr("");
+            const np = [...f.pred, mkDep(id, "FS")];
+            const snap = snapToPreds(np, f.start, f.finish);
+            setF((s) => ({ ...s, pred: np, ...(snap || {}) }));
+          }} />
+        <DepTypeList entries={f.pred} tasks={tasks} color={C.blue}
+          onType={(id, ty) => { const np = f.pred.map((x) => depId(x) === id ? mkDep(id, ty) : x); const snap = snapToPreds(np, f.start, f.finish); setF((s) => ({ ...s, pred: np, ...(snap || {}) })); }}
+          onRemove={(id) => set("pred", f.pred.filter((x) => depId(x) !== id))} />
+      </>}
+
+      {/* SUCCESSOR */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "14px 0 5px", flexWrap: "wrap" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.slate }}>Successor — pekerjaan yang menunggu pekerjaan ini</div>
+        {task && <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: C.slate, cursor: "pointer" }}>
+          <input type="checkbox" checked={noSucc} onChange={(e) => { const v = e.target.checked; setNoSucc(v); if (v) setSucc([]); }} /> Tidak ada successor
+        </label>}
+      </div>
+      {task ? (!noSucc && <>
+        <DepPicker tasks={tasks} exclude={[task.id, ...succ.map(depId)]} label="Tipe menentukan cara pekerjaan penerus mengikuti (FS/SS/FF/SF). Bisa lintas kegiatan."
+          onPick={(id) => { if (makesCycle(tasks, id, task.id)) { setErr("Tidak bisa: akan membuat ketergantungan melingkar."); return; } setErr(""); setSucc((s) => [...s, mkDep(id, "FS")]); }} />
+        <DepTypeList entries={succ} tasks={tasks} color={C.orange}
+          onType={(id, ty) => setSucc((s) => s.map((x) => depId(x) === id ? mkDep(id, ty) : x))}
+          onRemove={(id) => setSucc((s) => s.filter((x) => depId(x) !== id))} />
+      </>) : <div style={{ fontSize: 12, color: "#A9B7C6" }}>Simpan pekerjaan ini dulu, successor bisa diatur setelahnya.</div>}
+
+      <div style={{ fontSize: 11, color: C.slate, marginTop: 10, lineHeight: 1.5 }}>
+        <b>Tipe:</b> FS (selesai→mulai), SS (mulai→mulai), FF (selesai→selesai), SF (mulai→selesai). Relasi apa pun memunculkan garis panah di Gantt & Master Schedule.
+      </div>
     </div>
 
     {/* ---- PIC ---- */}
@@ -3154,12 +3276,12 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
       let next = d.id ? s.map((t) => t.id === d.id ? { ...t, ...d } : t) : [...s, { ...d, id: uid(), note: d.note || "", assignees: d.assignees || [] }];
       const myId = d.id;
       if (myId && succ) {
-        /* successor disimpan sebagai predecessor pada pekerjaan tujuan */
+        /* successor disimpan sebagai predecessor (dengan tipe) pada pekerjaan tujuan */
+        const wantMap = new Map(succ.map((e) => [depId(e), depType(e)]));
         next = next.map((t) => {
-          const has = (t.pred || []).indexOf(myId) >= 0;
-          const want = succ.indexOf(t.id) >= 0;
-          if (want && !has) return { ...t, pred: [...(t.pred || []), myId] };
-          if (!want && has) return { ...t, pred: (t.pred || []).filter((x) => x !== myId) };
+          const cur = (t.pred || []).filter((x) => depId(x) !== myId);   // buang relasi lama ke aku
+          if (wantMap.has(t.id)) return { ...t, pred: [...cur, mkDep(myId, wantMap.get(t.id))] };
+          if (cur.length !== (t.pred || []).length) return { ...t, pred: cur };
           return t;
         });
       }
@@ -3319,6 +3441,7 @@ function App() {
   const proj = cTotal + fee + trTotal + aTotal;
   const overall = useMemo(() => progressOf(tasks, null), [tasks]);
   const payData = useMemo(() => paymentMonths(rab, fee, terms, trans, acosts), [rab, fee, terms, trans, acosts, acts]);
+  const projFinish = useMemo(() => predictFinish(tasks, null), [tasks]);
   const nextPay = terms.filter((t) => D(t.date) >= D(PROJECT.statusDate)).sort((a, b) => D(a.date) - D(b.date))[0];
   const punchOpen = punch.filter((p) => p.status !== PST.done).length;
   const myOpen = user ? mytasks.filter((t) => (t.owner || "").toLowerCase() === uname(user) && !t.done).length : 0;
@@ -3384,6 +3507,14 @@ function App() {
   /* autosave */
   useSync("app_acts", acts, actToRow, ready);
   useSync("app_actcosts", acosts, acostToRow, ready);
+  /* KASKADE OTOMATIS: bila estimasi/aktual sebuah pekerjaan mundur, semua
+     successor-nya ikut mundur — lintas kegiatan sekalipun. Berjalan di semua
+     data (bukan hanya prediksi), dan berhenti sendiri saat jadwal konsisten. */
+  useEffect(() => {
+    if (!tasks.length) return;
+    const r = recalcSchedule(tasks);
+    if (r.moved > 0 && !r.cycle) setTasks(r.tasks);
+  }, [tasks]);
   useSync("app_tasks", tasks, taskToRow, ready);
   useSync("app_rab", rab, costToRow, ready);
   useSync("app_trans", trans, costToRow, ready);
@@ -3525,7 +3656,7 @@ function App() {
             <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "#fff", padding: "4px 11px", borderRadius: 99, fontSize: 11.5, fontWeight: 600, marginBottom: 14, color: C.ink, border: `1px solid ${C.line}` }}><span style={{ width: 7, height: 7, borderRadius: 99, background: C.green }} /> Status per {fmtDate(PROJECT.statusDate)}</div>
             <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -.6, color: C.ink }}>{PROJECT.name}</div>
             <div style={{ display: "flex", gap: 28, marginTop: 18, flexWrap: "wrap" }}>
-              {[["Nilai Proyek", rpShort(proj), C.ink], ["Progres Keseluruhan", overall + "%", C.green],
+              {[["Perkiraan Selesai Proyek", projFinish ? fmtDate(projFinish) : "-", C.blue], ["Nilai Proyek", rpShort(proj), C.ink], ["Progres Keseluruhan", overall + "%", C.green],
                 ...acts.map((a) => [a.label, rpShort(a.key === "konsultan" ? fee : a.key === "kontraktor" ? cTotal : a.key === "transisi" ? trTotal : sumCost(acosts.filter((r) => r.act === a.key))), a.color])
               ].map(([l, v, c], i) => <div key={i}><div style={{ fontSize: 11.5, color: C.slate, fontWeight: 600 }}>{l}</div><div style={{ fontSize: 21, fontWeight: 800, color: c, fontVariantNumeric: "tabular-nums", letterSpacing: -.5, marginTop: 2 }}>{v}</div></div>)}
             </div>
