@@ -25,6 +25,7 @@
   .g4 { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; }
   .g3 { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
   .g2 { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+  .g2n { display:grid; grid-template-columns: minmax(0,1.55fr) minmax(0,1fr); gap: 18px; }
   .g1 { display:grid; grid-template-columns: minmax(0,1fr); gap: 18px; }
   .rowwrap { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
   .scrollx { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -34,10 +35,11 @@
   }
   @media (max-width: 760px) {
     .scurve-grid { grid-template-columns: minmax(0,1fr) !important; }
+    .g2n { grid-template-columns: minmax(0,1fr); }
   }
   @media (max-width: 620px) {
     .wrap { padding: 14px; }
-    .g4, .g2 { grid-template-columns: minmax(0,1fr); }
+    .g4, .g2, .g2n { grid-template-columns: minmax(0,1fr); }
   }
 
   /* ---------- CETAK ---------- */
@@ -151,6 +153,9 @@ const days = (a, b) => Math.round((b - a) / 86400000);
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const MON = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
 const fmtDate = (s) => { if (!s) return "-"; const d = D(s); return `${String(d.getDate()).padStart(2,"0")} ${MON[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; };
+/* tanggal + jam untuk forum catatan, mis. "24 Mei 2026 · 08:30" */
+const MONL = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+const fmtDateTime = (isoTs) => { if (!isoTs) return ""; const d = new Date(isoTs); if (isNaN(d)) return ""; return `${d.getDate()} ${MONL[d.getMonth()]} ${d.getFullYear()} · ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
 const rp = (n) => "Rp " + Math.round(n || 0).toLocaleString("id-ID");
 const rpShort = (n) => { n = n || 0; if (Math.abs(n) >= 1e9) return "Rp " + (n / 1e9).toLocaleString("id-ID", { maximumFractionDigits: 2 }) + " M"; if (Math.abs(n) >= 1e6) return "Rp " + (n / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 0 }) + " jt"; return rp(n); };
 const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
@@ -202,6 +207,8 @@ const ICONS = {
   trash: (<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />),
   x: (<path d="M18 6 6 18M6 6l12 12" />),
   link: (<g><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></g>),
+  send: (<g><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7Z" /></g>),
+  chat: (<g><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" /></g>),
   expand: (<g><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></g>),
   trending: (<g><path d="M22 7 13.5 15.5 8.5 10.5 2 17" /><path d="M16 7h6v6" /></g>),
   dollar: (<g><circle cx="12" cy="12" r="10" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8M12 6v2m0 8v2" /></g>),
@@ -281,8 +288,8 @@ function mkAct(act, defs) {
   defs.forEach(([name, start, finish, pct, subs]) => {
     const pid = uid();
     const hasSub = subs && subs.length;
-    out.push({ id: pid, act, parent: null, name, start, finish, percent: hasSub ? 0 : pct, status: stOf(hasSub ? 0 : pct), note: "", assignees: [], prio: "Sedang", actualFinish: "", pred: [], todos: hasSub ? [] : defTodos(name) });
-    (subs || []).forEach(([sn, ss, sf, sp], i) => out.push({ id: uid(), act, parent: pid, name: sn, start: ss, finish: sf, percent: sp, status: stOf(sp), note: "", assignees: [], prio: PRIO[i % 3], actualFinish: "", pred: [], todos: defTodos(sn).map((x, j) => ({ ...x, done: sp >= Math.round((j + 1) / 3 * 100) })) }));
+    out.push({ id: pid, act, parent: null, name, start, finish, percent: hasSub ? 0 : pct, status: stOf(hasSub ? 0 : pct), note: "", assignees: [], prio: "Sedang", actualFinish: "", pred: [], todos: hasSub ? [] : defTodos(name), notes: [] });
+    (subs || []).forEach(([sn, ss, sf, sp], i) => out.push({ id: uid(), act, parent: pid, name: sn, start: ss, finish: sf, percent: sp, status: stOf(sp), note: "", assignees: [], prio: PRIO[i % 3], actualFinish: "", pred: [], todos: defTodos(sn).map((x, j) => ({ ...x, done: sp >= Math.round((j + 1) / 3 * 100) })), notes: [] }));
   });
   return out;
 }
@@ -445,9 +452,17 @@ async function usernameTaken(un) {
 }
 
 /* --- pemetaan field aplikasi <-> kolom DB --- */
-const taskToRow = (t) => ({ id: t.id, act: t.act, parent_id: t.parent || null, name: t.name, start_date: t.start, finish_date: t.finish, percent: Number(t.percent) || 0, status: t.status, note: t.note || null, assignees: t.assignees || [], prio: t.prio || "Sedang", actual_finish: t.actualFinish || null, pred: t.pred || [], todos: JSON.stringify(t.todos || []) });
+const taskToRow = (t) => ({ id: t.id, act: t.act, parent_id: t.parent || null, name: t.name, start_date: t.start, finish_date: t.finish, percent: Number(t.percent) || 0, status: t.status, note: t.note || null, assignees: t.assignees || [], prio: t.prio || "Sedang", actual_finish: t.actualFinish || null, pred: t.pred || [], todos: JSON.stringify(t.todos || []), notes: JSON.stringify(t.notes || []) });
 const parseTodos = (v) => { if (Array.isArray(v)) return v; try { const x = JSON.parse(v || "[]"); return Array.isArray(x) ? x : []; } catch (e) { return []; } };
-const taskFromRow = (r) => ({ id: r.id, act: r.act, parent: r.parent_id || null, name: r.name, start: r.start_date, finish: r.finish_date, percent: Number(r.percent) || 0, status: r.status, note: r.note || "", assignees: r.assignees || [], prio: r.prio || "Sedang", actualFinish: r.actual_finish || "", pred: r.pred || [], todos: parseTodos(r.todos) });
+/* thread catatan (forum). Terima array, JSON string, atau catatan lama (teks). */
+const parseNotes = (notesVal, legacyNote) => {
+  if (Array.isArray(notesVal)) return notesVal;
+  if (notesVal) { try { const a = JSON.parse(notesVal); if (Array.isArray(a)) return a; } catch (e) {} }
+  const lg = (legacyNote || "").toString().trim();
+  if (lg) return [{ id: uid(), author: null, authorName: "Catatan lama", role: "", text: lg, ts: null, parent: null }];
+  return [];
+};
+const taskFromRow = (r) => ({ id: r.id, act: r.act, parent: r.parent_id || null, name: r.name, start: r.start_date, finish: r.finish_date, percent: Number(r.percent) || 0, status: r.status, note: r.note || "", assignees: r.assignees || [], prio: r.prio || "Sedang", actualFinish: r.actual_finish || "", pred: r.pred || [], todos: parseTodos(r.todos), notes: parseNotes(r.notes, r.note) });
 const costToRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start_date: r.start, finish_date: r.finish, proof_url: r.proofUrl || null, proof_name: r.proofName || null });
 const costFromRow = (r) => ({ id: r.id, item: r.item, qty: Number(r.qty) || 0, rate: Number(r.rate) || 0, start: r.start_date, finish: r.finish_date, proofUrl: r.proof_url || null, proofName: r.proof_name || null });
 const termToRow = (t) => ({ id: t.id, term: t.term, descr: t.desc, percent: Number(t.percent) || 0, pay_date: t.date, proof_url: t.proofUrl || null, proof_name: t.proofName || null });
@@ -979,9 +994,9 @@ const Area = (p) => <textarea {...p} style={{ ...inS, resize: "vertical", minHei
 function Field({ label, children, req }) { return <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 4 }}>{label}{req && <span style={{ color: C.red, marginLeft: 3, fontWeight: 800 }}>*</span>}<div style={{ marginTop: 4 }}>{children}</div></label>; }
 function ReqNote() { return <div style={{ fontSize: 11.5, color: C.slate, marginBottom: 12 }}>Kolom bertanda <span style={{ color: C.red, fontWeight: 800 }}>*</span> wajib diisi.</div>; }
 function Card({ children, style }) { return <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 16, padding: 18, boxShadow: "0 1px 2px rgba(16,42,67,.04)", minWidth: 0, ...style }}>{children}</div>; }
-function CardHead({ icon, title, right, color = C.blue }) {
+function CardHead({ icon, title, sub, right, color = C.blue }) {
   return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
-    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}><span style={{ width: 30, height: 30, borderRadius: 9, background: color + "16", color, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={icon} size={16} /></span><span style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{title}</span></div>{right}
+    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}><span style={{ width: 30, height: 30, borderRadius: 9, background: color + "16", color, display: "grid", placeItems: "center", flexShrink: 0 }}><Ic name={icon} size={16} /></span><div style={{ minWidth: 0 }}><div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>{title}</div>{sub && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 1 }}>{sub}</div>}</div></div>{right}
   </div>;
 }
 function Modal({ title, onClose, children, width = 460 }) {
@@ -1452,7 +1467,7 @@ function Gantt({ tasks, act, users, statusDate, editable, onChange, onEdit, onDe
               {line("Durasi", `${days(D(t.start), D(t.finish)) + 1} hari · minggu ke-${isoWeek(D(t.start))}–${isoWeek(D(t.finish))}`)}
               {line("Progres", <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 74 }}><Bar pct={t.percent} color={m.bar} /></span>{t.percent}%</span>)}
               {line("PIC", (t.assignees || []).length ? <Avatars emails={t.assignees} users={users || []} size={19} /> : <span style={{ color: C.slate, fontWeight: 500 }}>belum ditentukan</span>)}
-              {t.note && <div style={{ marginTop: 8, fontSize: 11, color: C.slate, background: C.bg, borderRadius: 8, padding: "6px 8px", maxHeight: 54, overflow: "auto" }}>{t.note}</div>}
+              {(t.notes || []).length > 0 && (() => { const ln = lastNote(t); return <div style={{ marginTop: 8, fontSize: 11, color: C.slate, background: C.bg, borderRadius: 8, padding: "6px 8px", maxHeight: 60, overflow: "auto" }}><span style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 700, color: C.blue, marginBottom: 2 }}><Ic name="chat" size={11} /> {(t.notes || []).length} catatan</span>{ln ? (noteAuthorName(users, ln) + ": " + ln.text) : ""}</div>; })()}
               {editable && <div style={{ display: "flex", gap: 6, marginTop: 10 }}><Btn size="sm" kind="ghost" onClick={() => { setInfo(null); onEdit(t); }} style={{ flex: 1, justifyContent: "center" }}><Ic name="pencil" size={12} /> Edit</Btn></div>}
             </div>;
           })()}
@@ -1607,6 +1622,62 @@ function MasterGantt({ tasks, statusDate, forExport, summaryOnly, onToggleSummar
 
 /* ===== TASK MODAL ===== */
 /* --- pemilih ketergantungan: Kegiatan -> Pekerjaan -> Sub Pekerjaan --- */
+/* ===== FORUM CATATAN (thread berbalas) ===== */
+function noteAuthorName(users, post) { const u = post.author ? findUser(users, post.author) : null; return u ? u.name : (post.authorName || "Tanpa nama"); }
+function noteAuthorRole(users, post) { const u = post.author ? findUser(users, post.author) : null; return u ? u.role : (post.role || ""); }
+const lastNote = (t) => { const n = (t && t.notes) || []; return n.length ? n[n.length - 1] : null; };
+function NoteForum({ notes, users, me, onChange, compact, readOnly }) {
+  const list = notes || [];
+  const [text, setText] = useState("");
+  const [replyTo, setReplyTo] = useState(null);
+  const [replyText, setReplyText] = useState("");
+  const tops = list.filter((n) => !n.parent);
+  const repliesOf = (id) => list.filter((n) => n.parent === id).sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
+  const post = (parent, body, after) => {
+    const t = body.trim(); if (!t) return;
+    const np = { id: uid(), author: me ? me.id : null, authorName: me ? me.name : "", role: me ? me.role : "", text: t, ts: new Date().toISOString(), parent: parent || null };
+    onChange([...(list || []), np]); after && after();
+  };
+  const del = (id) => onChange(list.filter((n) => n.id !== id && n.parent !== id));
+  const initials = (nm) => (nm || "?").trim()[0] ? (nm || "?").trim()[0].toUpperCase() : "?";
+  const avatar = (nm, role) => <span style={{ width: 30, height: 30, borderRadius: 99, background: role === ROLE.pm ? C.blueSoft : C.greenSoft, color: role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 12.5, fontWeight: 800, flexShrink: 0 }}>{initials(nm)}</span>;
+  const Post = ({ n, isReply }) => { const nm = noteAuthorName(users, n), role = noteAuthorRole(users, n); const mine = me && n.author === me.id;
+    return <div style={{ display: "flex", gap: 9, marginTop: isReply ? 8 : 12, marginLeft: isReply ? 38 : 0 }}>
+      {avatar(nm, role)}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ background: isReply ? "#F7F9FC" : "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "9px 12px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 800, color: C.ink }}>{nm}</span>
+            {role && <span style={{ fontSize: 10.5, fontWeight: 700, color: role === ROLE.pm ? C.blue : C.green, background: role === ROLE.pm ? C.blueSoft : C.greenSoft, borderRadius: 99, padding: "1px 8px" }}>{role}</span>}
+            <span style={{ fontSize: 11, color: C.slate, marginLeft: "auto" }}>{n.ts ? fmtDateTime(n.ts) : "catatan lama"}</span>
+          </div>
+          <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.5, marginTop: 4, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{n.text}</div>
+        </div>
+        {!readOnly && <div style={{ display: "flex", gap: 12, marginTop: 3, paddingLeft: 4 }}>
+          {!isReply && <button onClick={() => { setReplyTo(replyTo === n.id ? null : n.id); setReplyText(""); }} style={{ background: "none", border: "none", color: C.slate, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>{replyTo === n.id ? "Batal" : "Balas"}</button>}
+          {mine && <button onClick={() => del(n.id)} style={{ background: "none", border: "none", color: C.red, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>Hapus</button>}
+        </div>}
+        {!isReply && replyTo === n.id && <div style={{ display: "flex", gap: 7, marginTop: 6 }}>
+          <Input value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder={`Balas ${nm}…`} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); post(n.id, replyText, () => { setReplyText(""); setReplyTo(null); }); } }} style={{ flex: 1, fontSize: 12.5 }} />
+          <Btn size="sm" onClick={() => post(n.id, replyText, () => { setReplyText(""); setReplyTo(null); })}>Kirim</Btn>
+        </div>}
+        {repliesOf(n.id).map((r) => <Post key={r.id} n={r} isReply />)}
+      </div>
+    </div>;
+  };
+  return <div>
+    <div style={{ maxHeight: compact ? 240 : 340, overflow: "auto", paddingRight: 4 }}>
+      {tops.length === 0 ? <div style={{ fontSize: 12.5, color: "#A9B7C6", textAlign: "center", padding: "18px 0" }}>Belum ada catatan. Mulai diskusi di bawah.</div>
+        : tops.sort((a, b) => (a.ts || "").localeCompare(b.ts || "")).map((n) => <Post key={n.id} n={n} />)}
+    </div>
+    {!readOnly && <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "flex-start", borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+      {avatar(me ? me.name : "?", me ? me.role : "")}
+      <Area value={text} onChange={(e) => setText(e.target.value)} placeholder="Tulis catatan baru… (Enter untuk kirim, Shift+Enter baris baru)" onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); post(null, text, () => setText("")); } }} style={{ flex: 1, minHeight: 44, fontSize: 13 }} />
+      <Btn onClick={() => post(null, text, () => setText(""))} style={{ flexShrink: 0 }}><Ic name="send" size={15} /> Kirim</Btn>
+    </div>}
+  </div>;
+}
+
 function DepPicker({ tasks, exclude, onPick, label }) {
   const [ak, setAk] = useState(ACTS[0] ? ACTS[0].key : "");
   const [pid, setPid] = useState("");
@@ -1647,14 +1718,14 @@ function DepTypeList({ entries, tasks, onRemove, onType, color }) {
       </div>; })}
   </div>;
 }
-function TaskModal({ task, act, tasks, users, onClose, onSave }) {
+function TaskModal({ task, act, tasks, users, me, onNotes, onClose, onSave }) {
   const parents = tasks.filter((t) => t.act === act && !t.parent && (!task || t.id !== task.id));
   const hasKids = task ? tasks.some((t) => t.parent === task.id) : false;
   const [f, setF] = useState(() => {
     const base = task || { name: "", act, parent: null, start: PROJECT.statusDate, finish: PROJECT.statusDate, percent: 0, status: STATUS.todo, note: "", assignees: [], prio: "Sedang", actualFinish: "", pred: [], todos: [] };
     const isSub0 = !!base.parent && !hasKids;
     const todos = isSub0 ? ((base.todos && base.todos.length) ? base.todos : [{ id: uid(), text: "", done: false }]) : [];
-    return { ...base, todos, pred: base.pred || [], actualFinish: base.actualFinish || "" };
+    return { ...base, todos, pred: base.pred || [], actualFinish: base.actualFinish || "", notes: base.notes || [] };
   });
   const showTodo = !!f.parent && !hasKids; /* to-do hanya untuk sub pekerjaan */
   const [succ, setSucc] = useState(task ? succOf(tasks, task.id).map((t) => { const e = (t.pred || []).find((x) => depId(x) === task.id); return mkDep(t.id, e ? depType(e) : "FS"); }) : []);
@@ -1694,7 +1765,7 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
     onSave({ ...f, act, percent: pct, status: f.status === STATUS.cancel ? STATUS.cancel : stOf(pct), todos: showTodo ? f.todos.map((t) => ({ ...t, text: t.text.trim() })) : [], _succ: succ });
   };
   const exclude = [task ? task.id : "x", ...predIds(f)];
-  return <Modal title={task ? "Edit Pekerjaan" : "Tambah Pekerjaan"} onClose={onClose} width={620}>
+  return <Modal title={task ? "Edit Pekerjaan" : "Tambah Pekerjaan"} onClose={onClose} width={820}>
     <ReqNote />
     <Field label="Nama pekerjaan" req><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="mis. Proses Tender / Market Survei" /></Field>
     <div style={{ marginTop: 12 }}><Field label="Induk (kosongkan bila ini Pekerjaan utama)">
@@ -1815,7 +1886,12 @@ function TaskModal({ task, act, tasks, users, onClose, onSave }) {
       </div>
     </div>
 
-    <div style={{ marginTop: 12 }}><Field label="Catatan"><Area value={f.note || ""} onChange={(e) => set("note", e.target.value)} placeholder="Catatan pelaksanaan" style={{ minHeight: 64 }} /></Field></div>
+    <div style={{ marginTop: 16, border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Forum Catatan</div>
+      {task && task.id
+        ? <NoteForum notes={f.notes} users={users} me={me} onChange={(n) => { set("notes", n); onNotes && onNotes(task.id, n); }} compact />
+        : <div style={{ fontSize: 12, color: "#A9B7C6" }}>Simpan pekerjaan ini dulu, forum catatan bisa dipakai setelahnya.</div>}
+    </div>
     {err && <div style={{ color: C.red, fontSize: 12.5, marginTop: 10, fontWeight: 600 }}>{err}</div>}
     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><Btn kind="ghost" onClick={onClose}>Batal</Btn><Btn onClick={save}>{task ? "Simpan" : "Tambah"}</Btn></div>
   </Modal>;
@@ -1843,7 +1919,7 @@ function TaskViewModal({ task, tasks, users, onClose }) {
     <div style={{ width: 130, fontSize: 12, color: C.slate, flexShrink: 0 }}>{l}</div>
     <div style={{ fontSize: 13, color: C.ink, minWidth: 0, flex: 1 }}>{v}</div>
   </div>;
-  return <Modal title="Detail Pekerjaan" onClose={onClose} width={520}>
+  return <Modal title="Detail Pekerjaan" onClose={onClose} width={620}>
     <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, marginBottom: 2 }}>{task.name}</div>
     <div style={{ marginBottom: 12 }}><ActTag act={task.act} /></div>
     {row("Pekerjaan induk", parent ? parent.name : "— pekerjaan utama —")}
@@ -1852,41 +1928,48 @@ function TaskViewModal({ task, tasks, users, onClose }) {
     {row("Progres", `${task.percent}%`)}
     {row("Status", <Pill text={task.status} color={m.color} bg={m.bg} />)}
     {row("Ditugaskan", <Avatars emails={task.assignees} users={users} />)}
-    <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 12, color: C.slate, marginBottom: 5 }}>Catatan</div>
-      <div style={{ fontSize: 13, color: task.note ? C.ink : C.slate, background: C.bg, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", whiteSpace: "pre-wrap", minHeight: 56 }}>{task.note || "Belum ada catatan."}</div>
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Forum Catatan</div>
+      <NoteForum notes={task.notes} users={users} readOnly compact />
     </div>
     <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}><Btn kind="ghost" onClick={onClose}>Tutup</Btn></div>
   </Modal>;
 }
 /* tambah catatan + assign orang (khusus Project Management) */
-function TaskNoteModal({ task, users, onSave, onClose }) {
-  const [note, setNote] = useState(task.note || "");
+function TaskNoteModal({ task, users, me, onSave, onNotes, onClose }) {
+  const [notes, setNotes] = useState(task.notes || []);
   const [asg, setAsg] = useState(task.assignees || []);
   const [status, setStatus] = useState(task.status);
-  const toggle = (un) => setAsg((s) => s.includes(un) ? s.filter((x) => x !== un) : [...s, un]);
+  const toggle = (u) => setAsg((s) => isAssigned(users, s, u) ? s.filter((x) => x !== u.id && x !== uname(u)) : [...s, u.id]);
   const aktif = users.filter((u) => u.active && !u.pending);
-  return <Modal title="Catatan & Penugasan" onClose={onClose} width={520}>
-    <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink, marginBottom: 12 }}>{task.name}</div>
-    <Field label="Catatan pekerjaan"><Area value={note} onChange={(e) => setNote(e.target.value)} placeholder="mis. Menunggu approval owner, material sudah dipesan…" style={{ minHeight: 96 }} /></Field>
-    <div style={{ marginTop: 12 }}><Field label="Status">
-      <Sel value={status} onChange={(e) => setStatus(e.target.value)}>{KCOLS.map((s) => <option key={s}>{s}</option>)}</Sel>
-    </Field></div>
-    <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Ditugaskan kepada ({asg.length} orang)</div>
-      <div style={{ maxHeight: 190, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 11, padding: 6 }}>
-        {aktif.map((u) => { const un = uname(u); const on = asg.includes(un); return (
-          <button key={u.id} onClick={() => toggle(un)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px", borderRadius: 9, border: "none", background: on ? C.blueSoft : "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}>
-            <span style={{ width: 19, height: 19, borderRadius: 6, border: `2px solid ${on ? C.blue : "#C7D2DE"}`, background: on ? C.blue : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>{on && <Ic name="check" size={11} />}</span>
-            <span style={{ width: 26, height: 26, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11.5, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</span>
-            <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{u.name}</span><span style={{ display: "block", fontSize: 11, color: C.slate }}>{uname(u)} · {u.role}</span></span>
-          </button>); })}
-        {aktif.length === 0 && <Empty text="Belum ada user aktif. Tambahkan di menu Manajemen User." />}
+  const changeNotes = (n) => { setNotes(n); onNotes && onNotes(task.id, n); };
+  return <Modal title="Catatan Pekerjaan" onClose={onClose} width={760}>
+    <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginBottom: 2 }}>{task.name}</div>
+    <div style={{ fontSize: 12, color: C.slate, marginBottom: 14 }}>Diskusi tim — catatan tersimpan otomatis begitu dikirim.</div>
+    <div className="g2n">
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Forum Catatan</div>
+        <NoteForum notes={notes} users={users} me={me} onChange={changeNotes} />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <Field label="Status"><Sel value={status} onChange={(e) => setStatus(e.target.value)}>{KCOLS.map((s) => <option key={s}>{s}</option>)}</Sel></Field>
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.slate, marginBottom: 6 }}>Ditugaskan kepada ({asg.length} orang)</div>
+          <div style={{ maxHeight: 300, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 11, padding: 6 }}>
+            {aktif.map((u) => { const on = isAssigned(users, asg, u); return (
+              <button key={u.id} onClick={() => toggle(u)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 9px", borderRadius: 9, border: "none", background: on ? C.blueSoft : "transparent", cursor: "pointer", textAlign: "left", marginBottom: 2 }}>
+                <span style={{ width: 19, height: 19, borderRadius: 6, border: `2px solid ${on ? C.blue : "#C7D2DE"}`, background: on ? C.blue : "#fff", color: "#fff", display: "grid", placeItems: "center", flexShrink: 0 }}>{on && <Ic name="check" size={11} />}</span>
+                <span style={{ width: 26, height: 26, borderRadius: 99, background: u.role === ROLE.pm ? C.blueSoft : C.greenSoft, color: u.role === ROLE.pm ? C.blue : C.green, display: "grid", placeItems: "center", fontSize: 11.5, fontWeight: 800, flexShrink: 0 }}>{(u.name || "?")[0].toUpperCase()}</span>
+                <span style={{ minWidth: 0 }}><span style={{ display: "block", fontSize: 13, fontWeight: 600, color: C.ink }}>{u.name}</span><span style={{ display: "block", fontSize: 11, color: C.slate }}>{u.role}</span></span>
+              </button>); })}
+            {aktif.length === 0 && <Empty text="Belum ada user aktif. Tambahkan di menu Manajemen User." />}
+          </div>
+        </div>
       </div>
     </div>
     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
-      <Btn kind="ghost" onClick={onClose}>Batal</Btn>
-      <Btn onClick={() => onSave({ note, assignees: asg, status })}>Simpan</Btn>
+      <Btn kind="ghost" onClick={onClose}>Tutup</Btn>
+      <Btn onClick={() => onSave({ notes, assignees: asg, status })}>Simpan Status & Penugasan</Btn>
     </div>
   </Modal>;
 }
@@ -1936,7 +2019,7 @@ function Kanban({ tasks, act, users, onMove, onView, onNote, onAdd, canMove, can
                   {canNote && <button title="Catatan & penugasan" onClick={() => onNote(t)} style={{ ...iconBtn, padding: 4 }}><Ic name="pencil" size={13} /></button>}
                 </div>
               </div>
-              {t.note && <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8, background: C.bg, borderRadius: 8, padding: "6px 8px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{t.note}</div>}
+              {(t.notes || []).length > 0 && (() => { const ln = lastNote(t); return <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8, background: C.bg, borderRadius: 8, padding: "6px 8px" }}><span style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 700, color: C.blue, marginBottom: 2 }}><Ic name="chat" size={11} /> {(t.notes || []).length} catatan</span><span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{ln ? ln.text : ""}</span></div>; })()}
               <div style={{ marginTop: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
                   <span style={{ fontSize: 10.5, color: C.slate, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}><Ic name="trending" size={11} /> Progres</span>
@@ -3163,7 +3246,7 @@ function Logs({ logs }) {
   const td = { padding: "9px 10px", borderBottom: `1px solid ${C.line}`, fontSize: 12.8, color: C.ink, verticalAlign: "top" };
   return <div className="g1">
     <Card>
-      <CardHead icon="history" title="Log Aktivitas" color={C.slate} right={
+      <CardHead icon="history" title="Log Aktivitas" color={C.slate} sub="Otomatis terhapus setelah 3 bulan" right={
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari aktivitas…" style={{ width: 190, padding: "7px 10px" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -3173,8 +3256,8 @@ function Logs({ logs }) {
             </Sel>
           </div>
         </div>} />
-      {/* Tinggi tabel TETAP (scrollable) walau opsi "Semua" dipilih */}
-      <div style={{ height: 430, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 12, background: "#fff" }}>
+      {/* Tinggi tabel mengikuti layar (lebih panjang), tetap scrollable */}
+      <div style={{ height: "calc(100vh - 300px)", minHeight: 460, overflow: "auto", border: `1px solid ${C.line}`, borderRadius: 12, background: "#fff" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 660 }}>
           <thead><tr><th style={{ ...th, width: 150 }}>Waktu</th><th style={{ ...th, width: 190 }}>Pengguna</th><th style={{ ...th, width: 210 }}>Aksi</th><th style={th}>Detail</th></tr></thead>
           <tbody>
@@ -3262,7 +3345,7 @@ function Stat({ label, value, sub, color = C.ink, icon }) {
 }
 
 /* ===== HALAMAN KEGIATAN (Gantt + Kanban) ===== */
-function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporting }) {
+function ActivityPage({ act, tasks, setTasks, users, user, can, log, onExport, exporting }) {
   const [tab, setTab] = useState("gantt");
   const actSC = useMemo(() => sCurveForAct(act, tasks), [act, tasks]);
   const [modal, setModal] = useState(null);
@@ -3312,6 +3395,7 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
     }));
     const t = tasks.find((x) => x.id === id); log && log("Ubah status Kanban", `${t ? t.name : id} → ${col}`);
   };
+  const setTaskNotes = (id, notes) => setTasks((s) => s.map((t) => t.id === id ? { ...t, notes } : t));
   const saveNote = (patch) => {
     setTasks((s) => s.map((t) => t.id === note.id ? { ...t, ...patch } : t));
     log && log("Catatan & penugasan", `${note.name} · ${(patch.assignees || []).length} orang`);
@@ -3387,9 +3471,9 @@ function ActivityPage({ act, tasks, setTasks, users, can, log, onExport, exporti
       <div style={{ fontSize: 11.5, color: C.slate, marginTop: 8 }}>Kurva rencana vs aktual khusus kegiatan {A2.label}. Garis putus-putus = target kumulatif; garis penuh = realisasi progres pekerjaan.</div>
     </Card>
 
-    {modal && can.manage && <TaskModal task={modal.task && modal.task.id ? modal.task : (modal.task || null)} act={act} tasks={tasks} users={users} onClose={() => setModal(null)} onSave={saveTask} />}
+    {modal && can.manage && <TaskModal task={modal.task && modal.task.id ? (tasks.find((t) => t.id === modal.task.id) || modal.task) : (modal.task || null)} act={act} tasks={tasks} users={users} me={user} onNotes={setTaskNotes} onClose={() => setModal(null)} onSave={saveTask} />}
     {view && <TaskViewModal task={view} tasks={tasks} users={users} onClose={() => setView(null)} />}
-    {note && can.manage && <TaskNoteModal task={note} users={users} onSave={saveNote} onClose={() => setNote(null)} />}
+    {note && can.manage && <TaskNoteModal task={tasks.find((t) => t.id === note.id) || note} users={users} me={user} onSave={saveNote} onNotes={setTaskNotes} onClose={() => setNote(null)} />}
   </div>;
 }
 
@@ -3430,10 +3514,16 @@ function App() {
   useEffect(() => { setSidebar(!isMobile); }, [isMobile]);
 
   const userRef = useRef(null); userRef.current = user;
+  /* batas retensi log: 3 bulan. Log lebih lama dari itu dibuang otomatis
+     supaya hemat storage. */
+  const LOG_RETENTION_DAYS = 90;
+  const pruneLogs = (arr) => { const cutoff = Date.now() - LOG_RETENTION_DAYS * 86400000; return (arr || []).filter((l) => { const t = new Date(l.ts).getTime(); return isNaN(t) || t >= cutoff; }); };
   const log = useMemo(() => (action, detail) => {
     const u = userRef.current;
-    setLogs((s) => [{ id: uid(), ts: nowISO(), actor: u ? (u.name || uname(u)) : "Sistem", action, detail: detail || "" }, ...s].slice(0, 1000));
+    setLogs((s) => pruneLogs([{ id: uid(), ts: nowISO(), actor: u ? (u.name || uname(u)) : "Sistem", action, detail: detail || "" }, ...s]).slice(0, 1000));
   }, []);
+  /* bersihkan sekali saat aplikasi dibuka (mis. setelah memuat dari Supabase) */
+  useEffect(() => { setLogs((s) => { const p = pruneLogs(s); return p.length !== s.length ? p : s; }); }, [ready]);
 
   const scToday = useMemo(() => todayMarkerData(rab, fee, terms, trans, acosts), [rab, fee, terms, trans, acosts, acts]);
   const sc = useMemo(() => sCurve(rab, fee, terms, trans, acosts), [rab, fee, terms, trans, acosts, acts]);
@@ -3733,7 +3823,7 @@ function App() {
           </Card>
         </div>}
 
-        {actKey && <ActivityPage act={actKey} tasks={tasks} setTasks={setTasks} users={users} can={can} log={log} exporting={exportAct === actKey} onExport={() => setExportAct(actKey)} />}
+        {actKey && <ActivityPage act={actKey} tasks={tasks} setTasks={setTasks} users={users} user={user} can={can} log={log} exporting={exportAct === actKey} onExport={() => setExportAct(actKey)} />}
         {page === "biaya" && <Costs rab={rab} setRab={setRab} trans={trans} setTrans={setTrans} acosts={acosts} setAcosts={setAcosts} fee={fee} setFee={setFee} terms={terms} setTerms={setTerms} can={can} log={log} />}
         {page === "punchlist" && <Punchlist punch={punch} setPunch={setPunch} tasks={tasks} can={can} log={log} />}
         {page === "arsip" && <Arsip docs={docs} setDocs={setDocs} log={log} />}
